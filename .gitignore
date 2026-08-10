@@ -1,0 +1,32 @@
+# Rust
+/target/
+**/target/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Tauri
+app/src-tauri/target/
+app/src-tauri/gen/
+
+# 本地工件区（不入 git）
+.plans/
+
+# 构建产物
+/release/
+*.exe
+*.msi
+*.zip
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 本地环境
+.env
+.env.local

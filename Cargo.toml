@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = ["crates/steadcopy-core", "crates/steadcopy-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/steadcopy/steadcopy"
+authors = ["steadcopy contributors"]
+
+[workspace.dependencies]
+steadcopy-core = { path = "crates/steadcopy-core" }
+
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+md-5 = "0.10"
+walkdir = "2"
+quick-xml = { version = "0.37", features = ["serialize"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+clap = { version = "4", features = ["derive"] }
+time = { version = "0.3", features = ["formatting", "parsing", "macros", "local-offset", "serde", "serde-well-known"] }
+tracing = "0.1"
+
+# dev
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

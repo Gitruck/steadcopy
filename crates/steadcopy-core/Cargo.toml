@@ -1,0 +1,39 @@
+[package]
+name = "steadcopy-core"
+description = "稳拷 steadcopy 的业务核：拷贝引擎、校验清单、设备、组织规则、任务台账"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+md5 = { package = "md-5", version = "0.10" }
+xxhash-rust.workspace = true
+walkdir.workspace = true
+quick-xml.workspace = true
+rusqlite.workspace = true
+time.workspace = true
+tracing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_SystemServices",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints.clippy]
+# 数据完整性防线：禁止静默降级写法（前身一号缺陷 —— 哈希失败返回空值致「空值相等即通过」）
+unwrap_used = "warn"
+expect_used = "warn"
