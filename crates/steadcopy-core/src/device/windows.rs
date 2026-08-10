@@ -9,7 +9,7 @@
 //! 2. **总线类型经 `IOCTL_STORAGE_QUERY_PROPERTY` 查**，不采信「可移动」标志位；
 //! 3. **支持无盘符的卷**——CFexpress 有「枚举成功但无盘符」的实例。
 
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::os::windows::ffi::OsStringExt;
 use std::path::Path;
 
 use windows::core::PCWSTR;

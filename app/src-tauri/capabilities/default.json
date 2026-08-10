@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "最小权限集。刻意不含 shell 执行与宽泛 fs 权限——前身放行 powershell 任意参数，等于前端 XSS 即 RCE。",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-start-dragging",
+    "dialog:allow-open",
+    "opener:allow-open-path",
+    "opener:allow-open-url"
+  ]
+}
