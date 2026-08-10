@@ -32,6 +32,7 @@ windows = { version = "0.58", features = [
 
 [dev-dependencies]
 tempfile.workspace = true
+walkdir.workspace = true
 
 [lints.clippy]
 # 数据完整性防线：禁止静默降级写法（前身一号缺陷 —— 哈希失败返回空值致「空值相等即通过」）

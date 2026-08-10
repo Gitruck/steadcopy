@@ -45,6 +45,12 @@ pub trait VolumeIo: Send + Sync {
 
     /// 长路径归一（Windows 上加 `\\?\` 前缀绕开 260 限制）。
     fn long_path(&self, path: &Path) -> PathBuf;
+
+    /// 查询该路径所在卷的可用空间（字节）。
+    ///
+    /// 用于拷前空间预检。查询失败 MUST 返回 `Err`——**MUST NOT** 返回 0 或
+    /// `u64::MAX` 之类的兜底值，那会让预检要么永远失败、要么形同虚设。
+    fn available_space(&self, path: &Path) -> Result<u64>;
 }
 
 /// 时钟。抽出来是为了让倒计时与退避可以在测试里被精确控制，
@@ -108,6 +114,12 @@ impl VolumeIo for UnsupportedVolumeIo {
 
     fn long_path(&self, path: &Path) -> PathBuf {
         path.to_path_buf()
+    }
+
+    fn available_space(&self, _path: &Path) -> Result<u64> {
+        Err(crate::error::CoreError::terminal(
+            crate::error::TerminalKind::Unsupported,
+        ))
     }
 }
 

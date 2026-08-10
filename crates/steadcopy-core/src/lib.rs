@@ -9,6 +9,7 @@ pub mod engine;
 pub mod error;
 pub mod manifest;
 pub mod platform;
+pub mod task;
 pub mod organize;
 
 pub use engine::{HashAlgorithm, HashValue};

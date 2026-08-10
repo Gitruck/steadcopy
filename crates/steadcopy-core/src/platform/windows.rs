@@ -15,9 +15,9 @@ use std::path::{Path, PathBuf};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FlushFileBuffers, GetDiskFreeSpaceW, ReadFile, FILE_FLAG_NO_BUFFERING,
-    FILE_FLAG_SEQUENTIAL_SCAN, FILE_GENERIC_READ, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    OPEN_EXISTING,
+    CreateFileW, FlushFileBuffers, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, ReadFile,
+    FILE_FLAG_NO_BUFFERING, FILE_FLAG_SEQUENTIAL_SCAN, FILE_GENERIC_READ, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 
 use super::{VolumeIo, FALLBACK_SECTOR_SIZE};
@@ -213,6 +213,36 @@ impl VolumeIo for WindowsVolumeIo {
                 ErrorContext::new().cause(format!("落盘失败：{e}")),
             )
         })
+    }
+
+    fn available_space(&self, path: &Path) -> Result<u64> {
+        // 目录可能尚未创建（首次拷贝），向上找到第一个存在的祖先来问
+        let mut probe = path.to_path_buf();
+        while !probe.exists() {
+            match probe.parent() {
+                Some(p) if p != probe => probe = p.to_path_buf(),
+                _ => break,
+            }
+        }
+        let mut wide = to_wide(&probe);
+        // GetDiskFreeSpaceExW 要求目录路径，结尾补分隔符更稳
+        if !probe.to_string_lossy().ends_with(['\\', '/']) {
+            wide.pop();
+            wide.push(u16::from(b'\\'));
+            wide.push(0);
+        }
+        let mut free_to_caller: u64 = 0;
+        // SAFETY: wide 以 NUL 结尾且在调用期间存活；输出指针指向本栈上的变量。
+        unsafe {
+            GetDiskFreeSpaceExW(
+                PCWSTR(wide.as_ptr()),
+                Some(&mut free_to_caller),
+                None,
+                None,
+            )
+        }
+        .map_err(|e| io_err(TerminalKind::InvalidConfig, path, format!("查询可用空间失败：{e}")))?;
+        Ok(free_to_caller)
     }
 
     fn long_path(&self, path: &Path) -> PathBuf {
