@@ -149,6 +149,31 @@ impl Emitter {
         }
     }
 
+    pub fn devices(&self, vols: &[steadcopy_core::device::Volume]) {
+        if self.json {
+            self.out(&vols);
+            return;
+        }
+        println!("本机卷");
+        for v in vols {
+            let src = if v.can_be_source(&[]) { "可作为源" } else { "—" };
+            let sys = if v.is_system { " · 系统盘" } else { "" };
+            println!(
+                "  {:<28} {:>10} / {:<10} {:<12} {:<9} {}{}",
+                v.display_name(),
+                human_bytes(v.free_bytes),
+                human_bytes(v.total_bytes),
+                v.file_system,
+                v.bus_type.label(),
+                src,
+                sys
+            );
+            if !v.fingerprints.is_empty() {
+                println!("      设备推测：{}", v.fingerprints.join("、"));
+            }
+        }
+    }
+
     pub fn scan(&self, r: &ScanResult, list: bool) {
         if self.json {
             self.out(&ScanJson {

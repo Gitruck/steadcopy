@@ -38,6 +38,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// 列出本机卷，标注哪些可作为拷贝源
+    Devices,
     /// 扫描源，输出素材统计与将纳入的文件集合
     Scan {
         /// 源目录（读卡器盘符根或任意目录）
@@ -154,6 +156,7 @@ fn main() -> ExitCode {
 
 fn run(cli: &Cli, out: &mut Emitter) -> Result<ExitKind, String> {
     match &cli.command {
+        Command::Devices => cmd_devices(out),
         Command::Scan { source, list } => cmd_scan(source, *list, out),
         Command::Plan(args) => cmd_plan(args, out),
         Command::Copy(args) => cmd_copy(args, out),
@@ -197,6 +200,12 @@ fn cmd_report(
     let m = read_manifest(manifest_path).map_err(|e| e.to_string())?;
     let p = write_html_report(manifest_path, &m, &[], 0, &[], None, output)?;
     out.report_written(&p);
+    Ok(ExitKind::Ok)
+}
+
+fn cmd_devices(out: &mut Emitter) -> Result<ExitKind, String> {
+    let vols = steadcopy_core::device::enumerate_volumes().map_err(|e| e.to_string())?;
+    out.devices(&vols);
     Ok(ExitKind::Ok)
 }
 
