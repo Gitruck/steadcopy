@@ -5,6 +5,8 @@
 //!
 //! 工作制度见 `openspec/README.md`：SDD（OpenSpec）+ TDD（规格锚定的 Detroit 式）+ 双轨约束。
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 pub mod device;
 pub mod engine;
 pub mod error;

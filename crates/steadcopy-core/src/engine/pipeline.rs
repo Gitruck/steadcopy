@@ -509,7 +509,7 @@ mod tests {
         // 拷到一点点就取消
         let r = copy_file_to_many(
             &src,
-            &[dst.clone()],
+            std::slice::from_ref(&dst),
             &PipelineOptions {
                 chunk_size: 64 * 1024,
                 ..Default::default()
@@ -559,7 +559,7 @@ mod tests {
         let dst = dir.path().join("d/empty.bin");
         let r = copy_file_to_many(
             &src,
-            &[dst.clone()],
+            std::slice::from_ref(&dst),
             &PipelineOptions::default(),
             &CancelToken::new(),
             &mut |_| {},

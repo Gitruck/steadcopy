@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! CLI 端到端测试。
 //!
 //! 规范：`openspec/changes/add-steadcopy-core/specs/cli-driver/spec.md`

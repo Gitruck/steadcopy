@@ -361,7 +361,7 @@ mod tests {
             .landing_dir
             .clone();
 
-        let h = crate::engine::hash_bytes(HashAlgorithm::Xxh64, &vec![b'x'; 100]);
+        let h = crate::engine::hash_bytes(HashAlgorithm::Xxh64, &[b'x'; 100]);
         let mut m = Manifest::new(
             spec.source.clone(),
             "婚礼",

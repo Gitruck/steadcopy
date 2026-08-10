@@ -98,9 +98,7 @@ impl SidecarMatcher {
         sidecar: &Path,
         media_candidates: &'a [P],
     ) -> Option<&'a Path> {
-        let Some(sc_stem) = stem_of(sidecar) else {
-            return None;
-        };
+        let sc_stem = stem_of(sidecar)?;
         media_candidates
             .iter()
             .map(AsRef::as_ref)

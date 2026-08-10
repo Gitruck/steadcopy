@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! 任务闭环集成测试：扫描 → 规划 → 拷贝 → 校验 → 清单 → 续传 → 复验。
 //!
 //! 规范：`openspec/changes/add-steadcopy-core/specs/copy-engine/spec.md`
@@ -14,7 +15,7 @@ use steadcopy_core::manifest::model::SourceRef;
 use steadcopy_core::manifest::{audit, load_manifests, ObservedFile, ResumeLedger};
 use steadcopy_core::organize::{scan_source, PathTemplate, ScanOptions};
 use steadcopy_core::platform::{volume_io, Clock, VolumeIo};
-use steadcopy_core::task::{plan_task, run_task, DestinationSpec, FileStatus, StageEvent, TaskSpec};
+use steadcopy_core::task::{plan_task, run_task, DestinationSpec, StageEvent, TaskSpec};
 use time::macros::datetime;
 use time::OffsetDateTime;
 

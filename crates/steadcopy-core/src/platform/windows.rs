@@ -251,9 +251,9 @@ impl VolumeIo for WindowsVolumeIo {
         if s.starts_with(r"\\?\") || s.starts_with(r"\\.\") || !path.is_absolute() {
             return path.to_path_buf();
         }
-        if s.starts_with(r"\\") {
+        if let Some(unc) = s.strip_prefix(r"\\") {
             // UNC：\\server\share → \\?\UNC\server\share
-            return PathBuf::from(format!(r"\\?\UNC\{}", &s[2..]));
+            return PathBuf::from(format!(r"\\?\UNC\{unc}"));
         }
         PathBuf::from(format!(r"\\?\{s}"))
     }

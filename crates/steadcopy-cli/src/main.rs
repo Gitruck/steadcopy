@@ -5,6 +5,8 @@
 //! 定位：**E2E 测试的唯一驱动面**，同时是自动化入口。
 //! 与 GUI 消费同一套 core 门面——CLI 层零业务逻辑。
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 mod output;
 
 use std::path::{Path, PathBuf};

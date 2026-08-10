@@ -22,8 +22,10 @@ use xxhash_rust::xxh64::Xxh64;
 /// MD5 仅为兼容旧后期流程保留——它慢一个量级。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum HashAlgorithm {
     #[serde(rename = "xxh64")]
+    #[default]
     Xxh64,
     #[serde(rename = "md5")]
     Md5,
@@ -39,11 +41,6 @@ impl HashAlgorithm {
     }
 }
 
-impl Default for HashAlgorithm {
-    fn default() -> Self {
-        HashAlgorithm::Xxh64
-    }
-}
 
 impl fmt::Display for HashAlgorithm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

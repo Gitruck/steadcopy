@@ -141,18 +141,18 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
             format!("{total} 个文件已拷贝，但本次未开启校验——无法确认写入是否完好"),
         )
     };
-    let _ = write!(h, "<div class=\"verdict {cls}\">{}</div>\n", esc(&verdict));
+    let _ = writeln!(h, "<div class=\"verdict {cls}\">{}</div>", esc(&verdict));
 
     for n in input.notices {
-        let _ = write!(h, "<div class=\"notice\">{}</div>\n", esc(n));
+        let _ = writeln!(h, "<div class=\"notice\">{}</div>", esc(n));
     }
 
     // ---- 概要 ----
     h.push_str("<h2>概要</h2>\n<div class=\"grid\">\n");
     let mut cell = |k: &str, v: &str| {
-        let _ = write!(
+        let _ = writeln!(
             h,
-            "<div class=\"cell\"><div class=\"k\">{}</div><div class=\"v\">{}</div></div>\n",
+            "<div class=\"cell\"><div class=\"k\">{}</div><div class=\"v\">{}</div></div>",
             esc(k),
             esc(v)
         );
@@ -191,9 +191,9 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
     if failed > 0 {
         h.push_str("<h2>失败清单</h2>\n<table>\n<thead><tr><th>文件</th><th>原因</th><th class=\"num\">重试</th></tr></thead>\n<tbody>\n");
         for (path, reason, retries) in input.failures {
-            let _ = write!(
+            let _ = writeln!(
                 h,
-                "<tr><td>{}</td><td>{}</td><td class=\"num\">{retries}</td></tr>\n",
+                "<tr><td>{}</td><td>{}</td><td class=\"num\">{retries}</td></tr>",
                 esc(path),
                 esc(reason)
             );
@@ -211,9 +211,9 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
             ("丢失", c.missing, "t-bad"),
             ("新增", c.added, "t-warn"),
         ] {
-            let _ = write!(
+            let _ = writeln!(
                 h,
-                "<div class=\"cell\"><div class=\"k\">{k}</div><div class=\"v\"><span class=\"tag {t}\">{v}</span></div></div>\n"
+                "<div class=\"cell\"><div class=\"k\">{k}</div><div class=\"v\"><span class=\"tag {t}\">{v}</span></div></div>"
             );
         }
         h.push_str("</div>\n");
@@ -223,9 +223,9 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
         if !a.missing.is_empty() {
             h.push_str("<table>\n<thead><tr><th>丢失的文件</th><th class=\"num\">大小</th><th>期望校验值</th></tr></thead>\n<tbody>\n");
             for x in &a.missing {
-                let _ = write!(
+                let _ = writeln!(
                     h,
-                    "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"mono\">{}</td></tr>\n",
+                    "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"mono\">{}</td></tr>",
                     esc(&x.relative_path),
                     human_bytes(x.size),
                     esc(&x.expected_hash)
@@ -243,9 +243,9 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
         } else {
             ("t-warn", "未校验")
         };
-        let _ = write!(
+        let _ = writeln!(
             h,
-            "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"mono\">{}</td><td><span class=\"tag {tag}\">{label}</span></td></tr>\n",
+            "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"mono\">{}</td><td><span class=\"tag {tag}\">{label}</span></td></tr>",
             esc(&e.relative_path),
             human_bytes(e.size),
             esc(&e.source_hash.to_hex())
@@ -253,9 +253,9 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
     }
     h.push_str("</tbody>\n</table>\n");
 
-    let _ = write!(
+    let _ = writeln!(
         h,
-        "<footer>由 {} {} 生成 · 校验算法 {} · 本报告为单文件，可离线打开，也可用浏览器打印为 PDF</footer>\n",
+        "<footer>由 {} {} 生成 · 校验算法 {} · 本报告为单文件，可离线打开，也可用浏览器打印为 PDF</footer>",
         esc(&m.generator.name),
         esc(&m.generator.version),
         m.algorithm
