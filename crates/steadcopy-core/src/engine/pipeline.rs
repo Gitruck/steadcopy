@@ -169,10 +169,45 @@ enum Message {
 
 /// 把一个源文件**读一遍**、同时写入全部目的地、并算出源哈希。
 ///
-/// `on_progress` 收到的是**已读源字节数**，由调用方负责限流
-/// （引擎内不做限流，避免把节流策略焊死在这一层）。
+/// 这是 [`copy_reader_to_many`] 针对本地文件的薄封装。
 pub fn copy_file_to_many(
     source: &Path,
+    destinations: &[PathBuf],
+    options: &PipelineOptions,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(u64),
+) -> Result<CopyResult> {
+    let reader = std::fs::File::open(source).map_err(|e| {
+        CoreError::Terminal(
+            TerminalKind::SourceUnreadable,
+            ErrorContext::new().path(source).cause(e.to_string()),
+        )
+    })?;
+    copy_reader_to_many(reader, destinations, options, cancel, on_progress).map_err(|e| {
+        // 补上路径上下文——错误 MUST 能定位到具体文件
+        let ctx = e.context().clone();
+        e.with_context(if ctx.path.is_some() {
+            ctx
+        } else {
+            ErrorContext {
+                path: Some(source.to_path_buf()),
+                ..ctx
+            }
+        })
+    })
+}
+
+/// 把**任意可读的源**读一遍、同时写入全部目的地、并算出源哈希。
+///
+/// 之所以以 `Read` 而非文件路径为入口：并非所有源都是挂载的卷。
+/// 安卓与 iOS 手机在 Windows 上走 MTP / WPD——**没有盘符、没有卷 GUID、
+/// 也不是文件系统对象**，`std::fs` 根本打不开。把读取端抽象在这一层，
+/// 将来接 MTP 源时引擎主体零改动。
+///
+/// `on_progress` 收到的是**已读源字节数**，由调用方负责限流
+/// （引擎内不做限流，避免把节流策略焊死在这一层）。
+pub fn copy_reader_to_many<R: Read>(
+    mut reader: R,
     destinations: &[PathBuf],
     options: &PipelineOptions,
     cancel: &CancelToken,
@@ -184,13 +219,6 @@ pub fn copy_file_to_many(
             ErrorContext::new().cause("至少要有一个目的地"),
         ));
     }
-
-    let mut reader = std::fs::File::open(source).map_err(|e| {
-        CoreError::Terminal(
-            TerminalKind::SourceUnreadable,
-            ErrorContext::new().path(source).cause(e.to_string()),
-        )
-    })?;
 
     let pool = BufferPool::new(options.chunk_size);
     let mut senders: Vec<SyncSender<Message>> = Vec::with_capacity(destinations.len());
@@ -218,9 +246,10 @@ pub fn copy_file_to_many(
             Ok(n) => n,
             Err(e) => {
                 pool.recycle(buf);
+                // 路径上下文由调用方补——本函数面向任意 `Read`，不一定有路径
                 read_error = Some(CoreError::Retryable(
                     RetryableKind::CopyIo,
-                    ErrorContext::new().path(source).cause(e.to_string()),
+                    ErrorContext::new().cause(format!("读取源失败：{e}")),
                 ));
                 break;
             }

@@ -5,10 +5,12 @@
 pub mod filter;
 pub mod sidecar;
 pub mod path_template;
+pub mod scan;
 
 pub use filter::{
     file_ext, normalize_ext, CategoryRule, Classification, FilterConfig, MediaKind,
 };
+pub use scan::{detect_fingerprints, is_junk_path, scan_source, ScanOptions, ScanResult, SourceFile};
 pub use sidecar::{SidecarMatcher, StemRule};
 pub use path_template::{
     sanitize_segment, sanitize_value, PathTemplate, Placeholder, RenderContext, TemplateError,
