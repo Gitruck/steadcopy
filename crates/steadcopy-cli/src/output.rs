@@ -1,0 +1,421 @@
+//! 人读（中文）与机读（`--json`）双输出。
+//!
+//! 规范：`openspec/changes/add-steadcopy-core/specs/cli-driver/spec.md`
+//! → Requirement: 人读与机读双输出 / 退出码契约
+//!
+//! 铁律：`--json` 时 **stdout 只出 JSON**，一切人读日志与进度走 stderr，
+//! 否则自动化侧没法直接 `| jq`。
+
+use serde::Serialize;
+use steadcopy_core::manifest::AuditReport;
+use steadcopy_core::organize::ScanResult;
+use steadcopy_core::task::{StageEvent, TaskPlan, TaskReport, TaskStage};
+
+/// 退出码契约。数值即退出码。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ExitKind {
+    Ok = 0,
+    /// 终态族：无素材 / 空间不足 / 配置非法，重跑一样
+    Terminal = 1,
+    /// 可重试族：拷贝失败 / 校验失败 / 设备移除
+    Retryable = 2,
+    Cancelled = 3,
+    #[allow(dead_code)]
+    Usage = 4,
+}
+
+pub fn human_bytes(n: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = n as f64;
+    let mut i = 0;
+    while v >= 1024.0 && i < UNITS.len() - 1 {
+        v /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{n} B")
+    } else {
+        format!("{v:.2} {}", UNITS[i])
+    }
+}
+
+pub struct Emitter {
+    json: bool,
+}
+
+#[derive(Serialize)]
+struct ScanJson {
+    files: usize,
+    total_bytes: u64,
+    junk_excluded: usize,
+    filtered_out: usize,
+    fingerprints: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    list: Option<Vec<FileJson>>,
+}
+
+#[derive(Serialize)]
+struct FileJson {
+    path: String,
+    size: u64,
+}
+
+#[derive(Serialize)]
+struct PlanJson {
+    scanned_files: usize,
+    to_copy: usize,
+    to_copy_bytes: u64,
+    skipped: usize,
+    destinations: Vec<DestJson>,
+    no_source: bool,
+    no_new_source: bool,
+    notices: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct DestJson {
+    landing_dir: String,
+    required_bytes: u64,
+    required_files: usize,
+    available_bytes: Option<u64>,
+    sufficient: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct ReportJson {
+    copied: usize,
+    skipped: usize,
+    failed: usize,
+    bytes_copied: u64,
+    cancelled: bool,
+    manifests: Vec<String>,
+    notices: Vec<String>,
+    failures: Vec<FailureJson>,
+}
+
+#[derive(Serialize)]
+struct FailureJson {
+    path: String,
+    reason: String,
+    retries: u32,
+}
+
+#[derive(Serialize)]
+struct EmptyJson {
+    result: &'static str,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct ErrorJson {
+    error: String,
+}
+
+impl Emitter {
+    pub fn new(json: bool) -> Self {
+        Self { json }
+    }
+
+    fn out(&self, value: &impl Serialize) {
+        if let Ok(s) = serde_json::to_string(value) {
+            println!("{s}");
+        }
+    }
+
+    /// 人读信息一律走 stderr——`--json` 时 stdout 必须保持纯净。
+    fn note_line(&self, msg: &str) {
+        eprintln!("{msg}");
+    }
+
+    pub fn error(&self, msg: &str) {
+        if self.json {
+            self.out(&ErrorJson {
+                error: msg.to_string(),
+            });
+        } else {
+            eprintln!("✗ {msg}");
+        }
+    }
+
+    pub fn finished_empty(&self, result: &'static str, message: &str) {
+        if self.json {
+            self.out(&EmptyJson {
+                result,
+                message: message.to_string(),
+            });
+        } else {
+            self.note_line(&format!("· {message}"));
+        }
+    }
+
+    pub fn scan(&self, r: &ScanResult, list: bool) {
+        if self.json {
+            self.out(&ScanJson {
+                files: r.file_count(),
+                total_bytes: r.total_bytes(),
+                junk_excluded: r.junk_excluded,
+                filtered_out: r.filtered_out,
+                fingerprints: r.fingerprints.clone(),
+                list: list.then(|| {
+                    r.files
+                        .iter()
+                        .map(|f| FileJson {
+                            path: f.relative_path.clone(),
+                            size: f.size,
+                        })
+                        .collect()
+                }),
+            });
+            return;
+        }
+        println!("扫描结果");
+        if !r.fingerprints.is_empty() {
+            println!("  设备推测：{}", r.fingerprints.join("、"));
+        }
+        println!(
+            "  文件 {} 个 · {}",
+            r.file_count(),
+            human_bytes(r.total_bytes())
+        );
+        if r.junk_excluded > 0 {
+            println!("  已排除系统垃圾 {} 个", r.junk_excluded);
+        }
+        if r.filtered_out > 0 {
+            println!("  被类型过滤排除 {} 个", r.filtered_out);
+        }
+        if list {
+            for f in &r.files {
+                println!("  {}  {}", f.relative_path, human_bytes(f.size));
+            }
+        }
+    }
+
+    pub fn plan(&self, p: &TaskPlan) {
+        let notices: Vec<String> = p
+            .destinations
+            .iter()
+            .flat_map(|d| d.ledger_degraded.clone())
+            .collect();
+
+        if self.json {
+            self.out(&PlanJson {
+                scanned_files: p.scan.file_count(),
+                to_copy: p.files.len(),
+                to_copy_bytes: p.total_bytes(),
+                skipped: p.skipped.len(),
+                destinations: p
+                    .destinations
+                    .iter()
+                    .map(|d| DestJson {
+                        landing_dir: d.landing_dir.display().to_string(),
+                        required_bytes: d.required_bytes,
+                        required_files: d.required_files,
+                        available_bytes: d.available_bytes,
+                        sufficient: d.sufficient(),
+                    })
+                    .collect(),
+                no_source: p.is_no_source(),
+                no_new_source: p.is_no_new_source(),
+                notices,
+            });
+            return;
+        }
+
+        println!("任务计划");
+        println!(
+            "  本次待拷 {} 个文件 · {}（已跳过 {} 个）",
+            p.files.len(),
+            human_bytes(p.total_bytes()),
+            p.skipped.len()
+        );
+        for (i, d) in p.destinations.iter().enumerate() {
+            println!("  目的地 {}：{}", i + 1, d.landing_dir.display());
+            let avail = d
+                .available_bytes
+                .map(human_bytes)
+                .unwrap_or_else(|| "未知".into());
+            let verdict = match d.sufficient() {
+                Some(true) => "空间充足",
+                Some(false) => "空间不足",
+                None => "空间无法确认",
+            };
+            println!(
+                "    需要 {} · 可用 {} · {verdict}",
+                human_bytes(d.required_bytes),
+                avail
+            );
+        }
+        for n in &notices {
+            self.note_line(&format!("  ⚠ 历史清单不可读（{n}），本次执行全量拷贝"));
+        }
+    }
+
+    /// 进度回调。全部走 stderr。
+    ///
+    /// **限流在消费方**：引擎按真实进展发全量事件（CLI 与自动化才拿得到完整流），
+    /// 由这里决定多久渲染一次——距上次 <100ms 且进度变化 <0.5% 就不画。
+    /// 否则大量小文件时终端会被刷爆。
+    pub fn progress_sink(&self) -> impl FnMut(StageEvent) + '_ {
+        let mut last_stage: Option<TaskStage> = None;
+        let mut last_draw = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        let mut last_pct = -1.0f64;
+        let mut line_pending = false;
+        // 管道里 \r 不产生视觉覆盖，此时改为不重画同一行，避免刷屏
+        let tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
+
+        move |e: StageEvent| {
+            // 任何非进度输出之前，先把未收尾的进度行收掉
+            let end_line = |pending: &mut bool| {
+                if *pending {
+                    eprintln!();
+                    *pending = false;
+                }
+            };
+
+            match e {
+                StageEvent::Stage(s) => {
+                    if last_stage != Some(s) {
+                        last_stage = Some(s);
+                        end_line(&mut line_pending);
+                        last_pct = -1.0;
+                        eprintln!("[{}]", s.label());
+                    }
+                }
+                StageEvent::Progress {
+                    done,
+                    total,
+                    current,
+                    ..
+                } => {
+                    let pct = steadcopy_core::task::stage::percent(done, total);
+                    let elapsed_ok = last_draw.elapsed() >= std::time::Duration::from_millis(100);
+                    let moved_enough = (pct - last_pct).abs() >= 0.5;
+                    if !(elapsed_ok || moved_enough) {
+                        return;
+                    }
+                    last_draw = std::time::Instant::now();
+                    last_pct = pct;
+                    let Some(c) = current else { return };
+                    if tty {
+                        eprint!("\r  {pct:5.1}%  {c:<60}");
+                        line_pending = true;
+                    } else {
+                        // 非终端：每次单独一行，不用 \r
+                        eprintln!("  {pct:5.1}%  {c}");
+                    }
+                }
+                StageEvent::FileFailed {
+                    relative_path,
+                    reason,
+                } => {
+                    end_line(&mut line_pending);
+                    eprintln!("  ✗ {relative_path}：{reason}");
+                }
+                StageEvent::Notice(msg) => {
+                    end_line(&mut line_pending);
+                    eprintln!("  ⚠ {msg}");
+                }
+            }
+        }
+    }
+
+    pub fn report(&self, r: &TaskReport) {
+        let failures: Vec<FailureJson> = r
+            .failed_files()
+            .map(|f| FailureJson {
+                path: f.relative_path.clone(),
+                reason: match &f.status {
+                    steadcopy_core::task::FileStatus::Failed(m) => m.clone(),
+                    _ => String::new(),
+                },
+                retries: f.retries,
+            })
+            .collect();
+
+        if self.json {
+            self.out(&ReportJson {
+                copied: r.copied_count(),
+                skipped: r.skipped_count(),
+                failed: failures.len(),
+                bytes_copied: r.bytes_copied,
+                cancelled: r.cancelled,
+                manifests: r.manifests.iter().map(|p| p.display().to_string()).collect(),
+                notices: r.notices.clone(),
+                failures,
+            });
+            return;
+        }
+
+        eprintln!();
+        if r.cancelled {
+            println!("任务已取消");
+        } else if failures.is_empty() {
+            println!(
+                "拷贝完成：{} 个文件 · {} · 全部校验通过",
+                r.copied_count(),
+                human_bytes(r.bytes_copied)
+            );
+        } else {
+            // 有失败时 MUST NOT 用「完成」作为主表述
+            println!(
+                "部分失败：成功 {} 个，失败 {} 个",
+                r.copied_count(),
+                failures.len()
+            );
+        }
+        if r.skipped_count() > 0 {
+            println!("  已跳过 {} 个（此前已拷并校验通过）", r.skipped_count());
+        }
+        for f in &failures {
+            println!("  ✗ {}（重试 {} 次）：{}", f.path, f.retries, f.reason);
+        }
+        for m in &r.manifests {
+            println!("  凭证：{}", m.display());
+        }
+    }
+
+    pub fn report_written(&self, path: &std::path::Path) {
+        if self.json {
+            #[derive(Serialize)]
+            struct R<'a> {
+                report: &'a str,
+            }
+            let p = path.display().to_string();
+            self.out(&R { report: &p });
+        } else {
+            println!("  报告：{}", path.display());
+        }
+    }
+
+    pub fn audit(&self, r: &AuditReport) {
+        if self.json {
+            self.out(r);
+            return;
+        }
+        let c = r.counts();
+        println!("复验结果（算法 {}）", r.algorithm);
+        println!("  一致 {}   已移动 {}   丢失 {}   新增 {}", c.intact, c.moved, c.missing, c.added);
+        if !r.complete {
+            println!("  ⚠ 结果不完整（复验被中断）");
+        }
+        if r.unverified_at_copy > 0 {
+            println!(
+                "  ⚠ 其中 {} 个条目在拷贝时未做校验，可信度较低",
+                r.unverified_at_copy
+            );
+        }
+        for m in &r.missing {
+            println!("  ✗ 丢失：{}（期望 {}）", m.relative_path, m.expected_hash);
+        }
+        for m in &r.moved {
+            println!("  → 已移动：{} → {}", m.from, m.to);
+        }
+        for a in &r.added {
+            println!("  + 新增：{}", a.relative_path);
+        }
+        if r.is_data_intact() {
+            println!("  数据完好——清单记录的内容全部找得到");
+        }
+    }
+}

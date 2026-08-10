@@ -188,9 +188,24 @@ pub fn load_manifests(landing_dir: &Path) -> LoadedManifests {
     out
 }
 
-/// RFC3339 时间串（用于报告与日志）。
+/// RFC3339 时间串（机读：manifest 字段、日志）。
 pub fn format_time(at: OffsetDateTime) -> String {
     at.format(&Rfc3339).unwrap_or_else(|_| String::from("-"))
+}
+
+/// 人读时间串（`2026-08-10 10:39:53`）。
+///
+/// 报告与界面用这个——`2026-08-10T10:39:53.1111741-07:00` 不是人话。
+pub fn format_time_human(at: OffsetDateTime) -> String {
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        at.year(),
+        at.month() as u8,
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second()
+    )
 }
 
 #[cfg(test)]

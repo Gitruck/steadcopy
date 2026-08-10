@@ -10,6 +10,7 @@ pub mod store;
 pub use audit::{audit, AuditCounts, AuditReport, ObservedFile};
 pub use ledger_account::{DoneEntry, ResumeLedger};
 pub use store::{
+    format_time_human,
     is_manifest_path, load_manifests, manifest_dir, read_manifest, write_manifest, LoadedManifests,
     ManifestReadIssue, MANIFEST_DIR,
 };

@@ -7,6 +7,7 @@
 
 pub mod engine;
 pub mod error;
+pub mod ledger;
 pub mod manifest;
 pub mod platform;
 pub mod task;
