@@ -5,13 +5,28 @@
 
 pub mod kind;
 pub mod volume;
+pub mod watch;
 
 #[cfg(windows)]
 pub mod windows;
+#[cfg(windows)]
+pub mod windows_watch;
 
-pub mod kind_reexport {}
 pub use kind::{next_instance, DeviceKind, DeviceRecord};
 pub use volume::{BusType, Volume, VolumeState};
+pub use watch::{drive_letters_from_mask, DeviceEvent, DeviceWatcher, MockDeviceWatcher};
+
+/// 取本平台的设备监听器。
+pub fn device_watcher() -> Box<dyn DeviceWatcher> {
+    #[cfg(windows)]
+    {
+        Box::new(windows_watch::WindowsDeviceWatcher::new())
+    }
+    #[cfg(not(windows))]
+    {
+        Box::new(MockDeviceWatcher::new())
+    }
+}
 
 /// 枚举本机当前挂载的全部卷。
 pub fn enumerate_volumes() -> crate::error::Result<Vec<Volume>> {

@@ -8,6 +8,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod output;
+mod setup;
+mod watch;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -42,6 +44,38 @@ struct Cli {
 enum Command {
     /// 列出本机卷，标注哪些可作为拷贝源
     Devices,
+    /// 守候插卡：认出设备 → 匹配预设 → 规划 → 确认后开跑
+    Watch {
+        /// 处理完第一个设备就退出（便于脚本与验收）
+        #[arg(long)]
+        once: bool,
+        /// 跳过确认直接开跑（等同于本次进入无人值守）
+        #[arg(long)]
+        yes: bool,
+        /// 测试专用：把一个普通目录当作到达的源设备（不绕过任何拷贝与校验逻辑）
+        #[arg(long, hide = true)]
+        simulate: Option<PathBuf>,
+    },
+    /// 查看配置文件位置与内容
+    Config {
+        #[command(subcommand)]
+        action: setup::ConfigAction,
+    },
+    /// 项目管理
+    Project {
+        #[command(subcommand)]
+        action: setup::ProjectAction,
+    },
+    /// 预设任务管理
+    Preset {
+        #[command(subcommand)]
+        action: setup::PresetAction,
+    },
+    /// 设备记忆库管理（指认类型、改名、忽略）
+    Device {
+        #[command(subcommand)]
+        action: setup::DeviceAction,
+    },
     /// 扫描源，输出素材统计与将纳入的文件集合
     Scan {
         /// 源目录（读卡器盘符根或任意目录）
@@ -159,6 +193,15 @@ fn main() -> ExitCode {
 fn run(cli: &Cli, out: &mut Emitter) -> Result<ExitKind, String> {
     match &cli.command {
         Command::Devices => cmd_devices(out),
+        Command::Watch {
+            once,
+            yes,
+            simulate,
+        } => watch::run(out, *once, *yes, simulate.as_deref()),
+        Command::Config { action } => setup::config_cmd(action, out),
+        Command::Project { action } => setup::project_cmd(action, out),
+        Command::Preset { action } => setup::preset_cmd(action, out),
+        Command::Device { action } => setup::device_cmd(action, out),
         Command::Scan { source, list } => cmd_scan(source, *list, out),
         Command::Plan(args) => cmd_plan(args, out),
         Command::Copy(args) => cmd_copy(args, out),

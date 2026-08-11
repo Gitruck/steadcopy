@@ -149,6 +149,87 @@ impl Emitter {
         }
     }
 
+    pub fn warn(&self, msg: &str) {
+        eprintln!("⚠ {msg}");
+    }
+
+    pub fn note(&self, msg: &str) {
+        eprintln!("· {msg}");
+    }
+
+    pub fn watch_ready(&self, c: &steadcopy_core::config::Config, path: &str) {
+        let enabled = c.presets.iter().filter(|p| p.enabled).count();
+        eprintln!("稳拷正在守候插卡…（Ctrl-C 退出）");
+        eprintln!("  项目 {} 个 · 启用的预设 {} 条 · 已记忆设备 {} 个",
+            c.projects.len(), enabled, c.devices.len());
+        eprintln!("  配置：{path}");
+    }
+
+    pub fn arrival(&self, o: &steadcopy_core::preset::ArrivalOutcome) {
+        use steadcopy_core::preset::ArrivalOutcome as A;
+        let mark = match o {
+            A::Planned { .. } => "▸",
+            A::NeedsClassification { .. } | A::NoPreset { .. } | A::NoProject { .. } => "?",
+            A::InsufficientSpace { .. } => "✗",
+            _ => "·",
+        };
+        eprintln!("
+{mark} {}", o.summary());
+        if let A::NeedsClassification { device_id, .. } = o {
+            eprintln!("    指认：steadcopy device set-kind \"{device_id}\" camera");
+        }
+        if let A::Planned { plan, .. } = o {
+            eprintln!("    待拷 {} 个 · {}", plan.files.len(), human_bytes(plan.total_bytes()));
+            for d in &plan.destinations {
+                eprintln!("    → {}", d.landing_dir.display());
+            }
+        }
+    }
+
+    pub fn projects(&self, c: &steadcopy_core::config::Config) {
+        if self.json { self.out(&c.projects); return; }
+        if c.projects.is_empty() { println!("还没有项目。用 `steadcopy project add <名称> -d <目的地>` 建一个"); return; }
+        for p in &c.projects {
+            let cur = if c.current_project.as_deref() == Some(p.id.as_str()) { " ← 当前" } else { "" };
+            println!("{}  {}{}", p.id, p.name, cur);
+            for d in &p.destinations {
+                println!("    {} {}  模板 {}", if d.enabled { "☑" } else { "☐" }, d.root.display(), d.template);
+            }
+        }
+    }
+
+    pub fn presets(&self, c: &steadcopy_core::config::Config) {
+        if self.json { self.out(&c.presets); return; }
+        if c.presets.is_empty() { println!("还没有预设。用 `steadcopy preset add <名称> --matches kind:camera` 配一条"); return; }
+        for p in &c.presets {
+            let proj = p.project_id.as_ref()
+                .and_then(|id| c.project(id))
+                .map(|x| x.name.clone())
+                .unwrap_or_else(|| "当前项目".into());
+            println!("{} {}  匹配 {} → 项目「{}」 校验 {}",
+                if p.enabled { "☑" } else { "☐" },
+                p.name, p.matcher.describe(), proj,
+                if p.verify { "开" } else { "关" });
+        }
+    }
+
+    pub fn device_records(&self, c: &steadcopy_core::config::Config) {
+        if self.json { self.out(&c.devices); return; }
+        if c.devices.is_empty() { println!("记忆库还是空的。插一张卡，稳拷会记住它"); return; }
+        let (ignored, active): (Vec<_>, Vec<_>) = c.devices.iter()
+            .partition(|d| d.kind == steadcopy_core::device::DeviceKind::Ignored);
+        for d in &active {
+            println!("{:<10} {:<20} {}", d.kind.label(), d.display_name(), d.id);
+        }
+        if !ignored.is_empty() {
+            println!("
+已忽略（插上不会打扰，可用 device set-kind 取消）");
+            for d in &ignored {
+                println!("{:<10} {:<20} {}", d.kind.label(), d.display_name(), d.id);
+            }
+        }
+    }
+
     pub fn devices(&self, vols: &[steadcopy_core::device::Volume]) {
         if self.json {
             self.out(&vols);
