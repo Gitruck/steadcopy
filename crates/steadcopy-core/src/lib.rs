@@ -7,12 +7,14 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod config;
 pub mod device;
 pub mod engine;
 pub mod error;
 pub mod ledger;
 pub mod manifest;
 pub mod platform;
+pub mod preset;
 pub mod task;
 pub mod organize;
 

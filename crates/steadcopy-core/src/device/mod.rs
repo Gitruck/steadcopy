@@ -9,7 +9,8 @@ pub mod volume;
 #[cfg(windows)]
 pub mod windows;
 
-pub use kind::{DeviceKind, DeviceRecord};
+pub mod kind_reexport {}
+pub use kind::{next_instance, DeviceKind, DeviceRecord};
 pub use volume::{BusType, Volume, VolumeState};
 
 /// 枚举本机当前挂载的全部卷。
