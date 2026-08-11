@@ -196,7 +196,15 @@ pub fn run_task(
         );
         m.entries = std::mem::take(&mut entries[slot]);
         match write_manifest(&dest.landing_dir, &m) {
-            Ok(p) => report.manifests.push(p),
+            Ok(p) => {
+                // 同时产一份 MHL v1 兼容清单，让凭证能被商业工具复验
+                if let Err(e) = crate::manifest::write_mhl(&p, &m) {
+                    let msg = format!("MHL 清单写入失败（{}）：{e}", p.display());
+                    on_event(StageEvent::Notice(msg.clone()));
+                    report.notices.push(msg);
+                }
+                report.manifests.push(p);
+            }
             Err(e) => {
                 let msg = format!("清单写入失败（{}）：{e}", dest.landing_dir.display());
                 on_event(StageEvent::Notice(msg.clone()));

@@ -4,9 +4,11 @@
 
 pub mod audit;
 pub mod ledger_account;
+pub mod mhl;
 pub mod model;
 pub mod store;
 
+pub use mhl::{render_mhl, write_mhl};
 pub use audit::{audit, AuditCounts, AuditReport, ObservedFile};
 pub use ledger_account::{DoneEntry, ResumeLedger};
 pub use store::{

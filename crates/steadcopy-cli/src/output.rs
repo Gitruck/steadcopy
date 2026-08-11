@@ -230,6 +230,17 @@ impl Emitter {
         }
     }
 
+    pub fn safety(&self, r: &steadcopy_core::device::SafetyReport, device: &str) {
+        if self.json {
+            self.out(r);
+            return;
+        }
+        println!("格式化前置检查 · {device}");
+        for c in &r.checks {
+            println!("  {} {}  {}", if c.passed { "✓" } else { "✗" }, c.id, c.detail);
+        }
+    }
+
     pub fn devices(&self, vols: &[steadcopy_core::device::Volume]) {
         if self.json {
             self.out(&vols);

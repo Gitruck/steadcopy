@@ -7,6 +7,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+mod format;
 mod output;
 mod setup;
 mod watch;
@@ -95,6 +96,17 @@ enum Command {
         /// 被复验的目录。省略时取清单所在目录的上一级
         #[arg(long)]
         dir: Option<PathBuf>,
+    },
+    /// ⚠️ 格式化源卡。默认拒绝执行，需显式危险参数
+    Format {
+        /// 目标卷（盘符如 E: 或卷 GUID）
+        target: String,
+        /// 显式危险确认。不给就直接拒绝
+        #[arg(long = "yes-i-know-this-erases-data")]
+        confirmed: bool,
+        /// 覆盖倒计时秒数（最小 10）
+        #[arg(long)]
+        countdown: Option<u32>,
     },
     /// 由一份清单生成 HTML 报告（单文件、可离线打开、可打印为 PDF）
     Report {
@@ -206,6 +218,11 @@ fn run(cli: &Cli, out: &mut Emitter) -> Result<ExitKind, String> {
         Command::Plan(args) => cmd_plan(args, out),
         Command::Copy(args) => cmd_copy(args, out),
         Command::Audit { manifest, dir } => cmd_audit(manifest, dir.as_deref(), out),
+        Command::Format {
+            target,
+            confirmed,
+            countdown,
+        } => format::run(out, target, *confirmed, *countdown),
         Command::Report { manifest, output } => cmd_report(manifest, output.as_deref(), out),
     }
 }

@@ -81,6 +81,10 @@ pub struct Settings {
     pub notify_on_finish: bool,
     /// 拷完并校验通过后自动安全弹出
     pub eject_after: bool,
+    /// **危险区**：拷完并全部校验通过后自动格式化源卡。默认关
+    pub format_after_copy: bool,
+    /// 不可逆操作的确认倒计时（秒）。默认 30，最小 10
+    pub countdown_secs: u32,
 }
 
 impl Default for Settings {
@@ -93,6 +97,8 @@ impl Default for Settings {
             retries: 2,
             notify_on_finish: true,
             eject_after: false,
+            format_after_copy: false,
+            countdown_secs: crate::device::COUNTDOWN_DEFAULT_SECS,
         }
     }
 }
@@ -161,6 +167,8 @@ pub enum ConfigError {
     },
     /// 预设指向了不存在的项目
     PresetProjectMissing { preset: String, project_id: String },
+    /// 倒计时低于安全下限
+    CountdownTooShort { secs: u32, min: u32 },
 }
 
 impl std::fmt::Display for ConfigError {
@@ -181,6 +189,9 @@ impl std::fmt::Display for ConfigError {
             ConfigError::PresetProjectMissing { preset, project_id } => {
                 write!(f, "预设「{preset}」指向的项目（{project_id}）已不存在")
             }
+            ConfigError::CountdownTooShort { secs, min } => {
+                write!(f, "不可逆操作的确认倒计时不能短于 {min} 秒（你设的是 {secs} 秒）")
+            }
         }
     }
 }
@@ -190,6 +201,12 @@ impl std::error::Error for ConfigError {}
 impl Config {
     /// 保存前的完整校验。
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.settings.countdown_secs < crate::device::COUNTDOWN_MIN_SECS {
+            return Err(ConfigError::CountdownTooShort {
+                secs: self.settings.countdown_secs,
+                min: crate::device::COUNTDOWN_MIN_SECS,
+            });
+        }
         for p in &self.projects {
             if p.destinations.is_empty() || p.destinations.len() > 4 {
                 return Err(ConfigError::DestinationCount {
@@ -419,6 +436,23 @@ mod tests {
         assert_eq!(c.devices[0].instance, 1);
         assert_eq!(c.devices[1].instance, 2, "重名应自动编号");
         assert_ne!(c.devices[0].display_name(), c.devices[1].display_name());
+    }
+
+    #[test]
+    fn scenario_format_card_countdown_defaults_and_floor() {
+        let c = Config::default();
+        assert_eq!(c.settings.countdown_secs, 30, "倒计时默认 30 秒");
+        assert!(!c.settings.format_after_copy, "拷后自动格式化默认必须关");
+
+        let mut bad = Config::default();
+        bad.settings.countdown_secs = 5;
+        assert!(matches!(
+            bad.validate(),
+            Err(ConfigError::CountdownTooShort { .. })
+        ));
+        let mut ok = Config::default();
+        ok.settings.countdown_secs = 10;
+        assert!(ok.validate().is_ok(), "下限 10 秒本身应合法");
     }
 
     #[test]
