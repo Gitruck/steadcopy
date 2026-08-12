@@ -138,6 +138,8 @@ pub fn run_task(
     let mut entries: Vec<Vec<ManifestEntry>> = vec![Vec::new(); plan.destinations.len()];
 
     for planned in &plan.files {
+        // 文件边界也是暂停点：小文件多的时候块边界可能很久才到一次
+        cancel.wait_if_paused();
         if cancel.is_cancelled() {
             report.cancelled = true;
             break;

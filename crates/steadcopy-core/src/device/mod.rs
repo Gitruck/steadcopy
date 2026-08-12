@@ -4,6 +4,7 @@
 //! 事实依据：`docs/source-devices.md`
 
 pub mod format;
+pub mod eject;
 pub mod kind;
 pub mod volume;
 pub mod watch;
@@ -13,14 +14,18 @@ pub mod windows_format;
 #[cfg(windows)]
 pub mod windows;
 #[cfg(windows)]
+pub mod windows_eject;
+#[cfg(windows)]
 pub mod windows_watch;
 
+pub use eject::{can_eject, ejector, EjectError, Ejector, UnsupportedEjector};
 pub use kind::{next_instance, DeviceKind, DeviceRecord};
 pub use volume::{BusType, Volume, VolumeState};
 pub use windows_format::{formatter, FormatParams, Formatter};
 pub use format::{
-    check_safety, removability, validate_countdown, BackupEvidence, CheckResult, Removability,
-    RemovabilityError, SafetyReport, COUNTDOWN_DEFAULT_SECS, COUNTDOWN_MIN_SECS,
+    check_safety, confirmation_phrase, decide_auto_format, label_matches, removability,
+    validate_countdown, AutoFormatDecision, BackupEvidence, CheckResult, Removability,
+    RemovabilityError, SafetyReport, BLANK_LABEL_PHRASE, COUNTDOWN_DEFAULT_SECS, COUNTDOWN_MIN_SECS,
 };
 pub use watch::{drive_letters_from_mask, DeviceEvent, DeviceWatcher, MockDeviceWatcher};
 

@@ -47,11 +47,44 @@ impl std::fmt::Display for ConfigLoadError {
 
 impl std::error::Error for ConfigLoadError {}
 
+/// 便携版标记文件。放在程序旁边即启用便携模式。
+const PORTABLE_MARKER: &str = "steadcopy.portable";
+/// 便携模式下的数据子目录名。
+const PORTABLE_DATA: &str = "data";
+
+/// 给定程序所在目录，判断是否处于便携模式并给出数据目录。
+///
+/// 判据是**程序旁边有没有标记文件**。安装版不带这个标记，
+/// 所以两者的数据天然隔离——同机并存也不会互相读写。
+fn portable_dir_at(exe_dir: &Path) -> Option<PathBuf> {
+    exe_dir
+        .join(PORTABLE_MARKER)
+        .exists()
+        .then(|| exe_dir.join(PORTABLE_DATA))
+}
+
+/// 便携模式的数据目录；非便携模式返回 `None`。
+pub fn portable_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    portable_dir_at(exe.parent()?)
+}
+
+/// 当前是否以便携版运行。
+pub fn is_portable() -> bool {
+    portable_dir().is_some()
+}
+
 /// 配置所在目录。**用户数据目录**，不是程序安装目录——
 /// 安装目录可能无写权限，且卸载会把用户的项目与预设一起带走。
+///
+/// 例外只有便携版：那是用户主动要求「数据跟着程序走」的形态，
+/// 靠程序旁边的标记文件显式开启，不会被误触发。
 pub fn config_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("STEADCOPY_CONFIG_DIR") {
         return PathBuf::from(dir);
+    }
+    if let Some(d) = portable_dir() {
+        return d;
     }
     let base = std::env::var("APPDATA")
         .or_else(|_| std::env::var("XDG_CONFIG_HOME"))
@@ -188,6 +221,46 @@ mod tests {
         c
     }
 
+    /// 递归检查：凡是名字像时间的键，值都必须是字符串。
+    ///
+    /// 这是**跨层契约的守夜人**。TS 那边把时间声明成 `string`，但 JSON 边界
+    /// 没有类型检查——`tsc --noEmit` 全绿，界面照样会在 `.replace()` 上炸。
+    /// `last_seen` 就是这么漏过去的：manifest 那边加了 rfc3339，config 这边忘了。
+    /// 所以不逐个字段断言，而是把规则本身钉住：**以后新增任何时间字段都自动被盯上。**
+    fn assert_time_fields_are_strings(v: &serde_json::Value, path: &str) {
+        match v {
+            serde_json::Value::Object(m) => {
+                for (k, val) in m {
+                    let here = format!("{path}.{k}");
+                    if k.ends_with("_at") || k.ends_with("_seen") || k == "at" {
+                        assert!(
+                            val.is_string(),
+                            "{here} 必须序列化成字符串，实际是 {val}。\
+                             前端声明的是 string，写成别的形状会在运行时炸"
+                        );
+                    }
+                    assert_time_fields_are_strings(val, &here);
+                }
+            }
+            serde_json::Value::Array(a) => {
+                for (i, val) in a.iter().enumerate() {
+                    assert_time_fields_are_strings(val, &format!("{path}[{i}]"));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // spec: config-store → 时间字段序列化口径 → Scenario: 时间字段序列化为 ISO 字符串
+    #[test]
+    fn scenario_config_store_every_timestamp_crosses_as_a_string() {
+        let v = serde_json::to_value(sample()).expect("序列化整份配置");
+        // 先确认样本里真的有时间字段，否则这个测试等于没测
+        assert!(v["devices"][0]["last_seen"].is_string(), "{v}");
+        assert!(v["projects"][0]["created_at"].is_string(), "{v}");
+        assert_time_fields_are_strings(&v, "config");
+    }
+
     // spec: config-store → 配置内容与位置 → Scenario: 配置往返一致
     #[test]
     fn scenario_config_store_roundtrip() {
@@ -299,5 +372,26 @@ mod tests {
         // 默认落在用户数据目录，绝不是程序目录
         let d = config_dir();
         assert!(d.ends_with(APP_DIR), "配置目录应以应用名结尾：{d:?}");
+    }
+
+    #[test]
+    fn scenario_build_release_portable_data_is_isolated_from_installed() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let exe_dir = dir.path();
+
+        // 没有标记文件 = 安装版形态，数据不落在程序旁边
+        assert!(
+            portable_dir_at(exe_dir).is_none(),
+            "没有标记文件就不该进便携模式"
+        );
+
+        std::fs::write(exe_dir.join(PORTABLE_MARKER), "").expect("写标记");
+        let data = portable_dir_at(exe_dir).expect("有标记就该进便携模式");
+        assert_eq!(data, exe_dir.join(PORTABLE_DATA));
+
+        // 便携版的数据目录与安装版的用户数据目录不可能重合
+        let installed = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".into()))
+            .join(APP_DIR);
+        assert_ne!(data, installed, "便携版与安装版必须各存各的");
     }
 }

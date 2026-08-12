@@ -218,7 +218,7 @@ pub fn device_cmd(action: &DeviceAction, out: &mut Emitter) -> Result<ExitKind, 
             d.kind = k;
             let name = d.display_name();
             save(&c)?;
-            out.note(&format!("「{name}」已指认为{}", k.label()));
+            out.note(&format!("「{name}」已指认为{}", k.label(crate::output::lang())));
         }
         DeviceAction::Rename { id, name } => {
             let d = c

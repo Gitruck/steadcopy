@@ -64,6 +64,10 @@ input, select { font: inherit; }
   display: flex; align-items: center; gap: 14px; padding: 0 16px; background: var(--panel);
 }
 .topbar .t { font-weight: 600; }
+.topbar select {
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 5px; padding: 2px 6px; font-size: 12px;
+}
 .topbar .r { margin-left: auto; display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: 12px; }
 
 .body { flex: 1; overflow: auto; padding: 16px; }
@@ -161,8 +165,85 @@ td.num { text-align: right; font-family: var(--mono); font-size: 11.5px; white-s
 
 .banner {
   padding: 8px 12px; border-radius: 6px; font-size: 12.5px;
-  border: 1px solid; margin-bottom: 10px;
+  border: 1px solid;
 }
 .banner.ok { color: var(--ok); background: #0f2a1c; border-color: #1e4a33; }
 .banner.warn { color: var(--warn); background: #2c2313; border-color: #4a3c19; }
 .banner.bad { color: var(--danger); background: #2e1618; border-color: #4d2427; }
+
+/* 对话框：确认框比报告窄，且高度随内容 */
+.viewer .sheet.narrow {
+  width: min(560px, 92vw); height: auto; max-height: 88vh;
+}
+.viewer .sheet > .in { padding: 14px; overflow: auto; }
+
+/* ---- 插卡确认卡片 ---- */
+/* 它是全程唯一「不替用户做主」的落点，视觉上必须一眼抓住，但不用弹窗遮住工位。 */
+.panel.arrival {
+  border-color: #2f4a6b;
+  box-shadow: 0 0 0 1px #1b2b3d, 0 8px 24px rgba(0, 0, 0, .35);
+  animation: arrive .18s ease-out;
+}
+.panel.arrival > header { color: var(--fg); background: #16202c; }
+@keyframes arrive {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---- 危险区 ---- */
+/* 常驻提示条：开关一旦开着，每个页面顶部都看得见，杜绝「忘了自己开过」。 */
+.danger-strip {
+  padding: 7px 16px; font-size: 12px; cursor: pointer;
+  color: var(--warn); background: #2c2313; border-bottom: 1px solid #4a3c19;
+}
+.danger-strip .dim { margin-left: 6px; }
+
+.danger {
+  border: 1px solid #4d2427; border-radius: 8px; background: #1a1315;
+  margin-top: 10px;
+}
+.danger > header {
+  padding: 9px 12px; border-bottom: 1px solid #4d2427;
+  color: var(--danger); font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; gap: 10px;
+}
+.danger > header .small { font-weight: 400; }
+.danger > .in { padding: 12px; }
+.danger-text { color: var(--danger); }
+
+.toggle {
+  display: flex; gap: 8px; align-items: flex-start; cursor: pointer;
+  padding: 6px 8px; border-radius: 6px; border: 1px solid transparent;
+}
+.toggle:hover { background: rgba(255, 255, 255, .025); }
+.toggle input { margin-top: 3px; flex: 0 0 auto; }
+.toggle.danger-item:has(input:checked) { border-color: #5a2b2d; background: #241618; }
+
+input.inline {
+  background: transparent; color: var(--fg); border: 1px solid transparent;
+  border-radius: 4px; padding: 2px 5px; width: 100%;
+}
+input.inline:hover { border-color: var(--line); }
+input.inline:focus { outline: none; background: var(--bg); border-color: #3a4353; }
+
+td select {
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 5px; padding: 2px 5px; font-size: 12px;
+}
+
+/* 关于页的键值表：左窄右宽，不用当数据表看 */
+table.kv { width: auto; }
+table.kv th, table.kv td { border: 0; padding: 2px 10px 2px 0; vertical-align: top; }
+table.kv th { color: var(--muted); font-weight: 400; white-space: nowrap; }
+table.kv tbody tr:hover { background: none; }
+
+/* 沉淀提示条：行内、不抢焦点。它不是弹窗，也不该长得像警告 */
+.sink {
+  display: flex; gap: 12px; align-items: center;
+  padding: 10px 12px; border-radius: 8px; font-size: 12.5px;
+  border: 1px solid #3a3566; background: #1a1830;
+}
+.sink select {
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 5px; padding: 2px 6px; font-size: 12px;
+}

@@ -4,12 +4,12 @@
 //! → Requirement: 空间预检 / 断点续传
 //! 以及 `specs/cli-driver/spec.md` → Requirement: 干跑（plan）不产生副作用
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use time::OffsetDateTime;
 
 use crate::engine::HashAlgorithm;
-use crate::error::Result;
+use crate::error::{CoreError, ErrorContext, Result, TerminalKind};
 use crate::manifest::model::SourceRef;
 use crate::manifest::ResumeLedger;
 use crate::organize::{PathTemplate, RenderContext, ScanOptions, ScanResult, SourceFile};
@@ -37,6 +37,8 @@ pub struct TaskSpec {
     pub scan: ScanOptions,
     /// 校验失败后的重拷次数上限
     pub retries: u32,
+    /// 全绿之后是否安全弹出源卡。由预设决定，随任务走
+    pub eject_after: bool,
     /// 任务时间（路径模板与 manifest 都用它，保证同一任务内取值一致）
     pub at: OffsetDateTime,
 }
@@ -129,6 +131,26 @@ impl TaskPlan {
     }
 }
 
+/// 两个路径是不是同一块地方，或者一个套在另一个里面。
+///
+/// 比较前做大小写归一（Windows 文件系统大小写不敏感）与尾部分隔符归一，
+/// 不做 canonicalize——目的地目录这会儿还不存在，canonicalize 会直接失败。
+fn overlaps(a: &Path, b: &Path) -> bool {
+    const SEP: char = '\\';
+    let norm = |p: &Path| {
+        p.to_string_lossy()
+            .replace('/', "\\")
+            .trim_end_matches(SEP)
+            .to_lowercase()
+    };
+    let (a, b) = (norm(a), norm(b));
+    if a == b {
+        return true;
+    }
+    // 前缀比较必须落在分隔符上，否则 `D:\素材` 会被判成 `D:\素材备份` 的父目录
+    a.starts_with(&format!("{b}{SEP}")) || b.starts_with(&format!("{a}{SEP}"))
+}
+
 /// 规划一次任务。**只读**：不创建目录、不写文件、不动台账。
 pub fn plan_task(spec: &TaskSpec, io: &dyn VolumeIo) -> Result<TaskPlan> {
     let scan = crate::organize::scan_source(&spec.source_root, &spec.scan);
@@ -150,6 +172,19 @@ pub fn plan_task(spec: &TaskSpec, io: &dyn VolumeIo) -> Result<TaskPlan> {
         let mut landing = spec_dest.root.clone();
         for seg in spec_dest.template.render_segments(&ctx) {
             landing.push(seg);
+        }
+
+        // 目的地落在源里面 = 把卡拷进它自己。这一次不会死循环（扫描先于拷贝），
+        // 但下一次运行会把上次拷进去的东西当成新素材再拷一层，越滚越深。
+        // 反过来（源落在目的地里面）同样不行——那说明选错了源。
+        if overlaps(&landing, &spec.source_root) {
+            return Err(CoreError::Terminal(
+                TerminalKind::InvalidConfig,
+                ErrorContext::new().path(&landing).cause(format!(
+                    "目的地与源是同一块地方（源：{}）。把卡拷进它自己，下一次运行会把上次的结果再拷一层",
+                    spec.source_root.display()
+                )),
+            ));
         }
         let ledger = ResumeLedger::load(&landing, &spec.source.id);
         destinations.push(DestinationPlan {
@@ -221,6 +256,7 @@ mod tests {
 
     fn spec_for(src: &Path, dests: &[&Path]) -> TaskSpec {
         TaskSpec {
+            eject_after: false,
             source_root: src.to_path_buf(),
             source: SourceRef {
                 id: "vol-1".into(),
@@ -416,5 +452,64 @@ mod tests {
         let plan = plan_task(&spec, io.as_ref()).expect("规划");
         assert_eq!(plan.destinations.len(), 1);
         assert_eq!(plan.enabled_indices, vec![0]);
+    }
+
+    // spec: → Scenario: 拒绝把源卡设为目的地
+    #[test]
+    fn scenario_copy_engine_destination_inside_source_is_rejected() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let src = dir.path().join("card");
+        touch(&src, "DCIM/a.mp4", 10);
+        let io = volume_io();
+
+        // 目的地就是源本身
+        let s = spec_for(&src, &[&src]);
+        let e = plan_task(&s, io.as_ref()).expect_err("拷进自己必须被拒");
+        assert!(
+            e.context().cause.as_deref().unwrap_or("").contains("同一块地方"),
+            "错误要说清是怎么回事：{:?}",
+            e.context().cause
+        );
+
+        // 目的地在源里面
+        let inside = src.join("备份");
+        let s = spec_for(&src, &[&inside]);
+        assert!(
+            plan_task(&s, io.as_ref()).is_err(),
+            "目的地在源里面必须被拒"
+        );
+
+        // 源的父目录当目的地是**允许**的：模板会往下渲染出子目录，
+        // 落地路径与源是兄弟关系，不构成自己拷自己
+        let outer = dir.path().to_path_buf();
+        let s = spec_for(&src, &[&outer]);
+        assert!(
+            plan_task(&s, io.as_ref()).is_ok(),
+            "父目录当目的地不该被误伤——落地路径是源的兄弟"
+        );
+
+        // 同前缀的兄弟目录不该被误伤
+        let sibling = dir.path().join("cardbak");
+        let s = spec_for(&src, &[&sibling]);
+        assert!(
+            plan_task(&s, io.as_ref()).is_ok(),
+            "cardbak 不是 card 的子目录，不该被误伤"
+        );
+    }
+
+    // spec: → Scenario: 拒绝把源卡设为目的地（判定本身）
+    #[test]
+    fn scenario_copy_engine_overlap_detection_is_separator_aware() {
+        let p = Path::new;
+        assert!(overlaps(p(r"D:\素材"), p(r"D:\素材")));
+        assert!(overlaps(p(r"D:\素材\"), p(r"D:\素材")));
+        assert!(overlaps(p(r"D:/素材"), p(r"D:\素材")));
+        // Windows 文件系统大小写不敏感，判定也得跟着
+        assert!(overlaps(p(r"d:\SUCAI"), p(r"D:\sucai")));
+        assert!(overlaps(p(r"D:\素材\婚礼"), p(r"D:\素材")));
+        assert!(overlaps(p(r"D:\素材"), p(r"D:\素材\婚礼")));
+        // 同前缀但不是父子关系——前缀比较必须落在分隔符上
+        assert!(!overlaps(p(r"D:\素材备份"), p(r"D:\素材")));
+        assert!(!overlaps(p(r"E:\素材"), p(r"D:\素材")));
     }
 }

@@ -62,6 +62,7 @@ fn spec_for(src: &Path, dests: &[&Path], verify: bool) -> TaskSpec {
         verify,
         scan: ScanOptions::mirror(),
         retries: 2,
+        eject_after: false,
         at: datetime!(2026-08-08 09:30:00 UTC),
     }
 }
@@ -344,12 +345,185 @@ fn snapshot(root: &Path) -> Vec<(String, u64, String)> {
                 .path()
                 .strip_prefix(root)
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_default();
-            let data = std::fs::read(e.path()).unwrap_or_default();
+                .expect("测试里的路径一定在 root 之下");
+            let data = std::fs::read(e.path()).expect("读文件");
             let len = data.len() as u64;
             (rel, len, hash_bytes(HashAlgorithm::Xxh64, &data).to_hex())
         })
         .collect();
     out.sort();
     out
+}
+
+// ---------------------------------------------------------------- 临时拷贝
+//
+// 规范：openspec/changes/add-steadcopy-copy-first-flow/specs/adhoc-copy/spec.md
+//
+// 这一组只证明一件事：**临时不等于降级。**
+// 本 change 没改引擎，所以风险不在引擎，在「会不会有人为临时开一条捷径」。
+
+use steadcopy_core::config::model::{Config, DestinationConfig, Project};
+use steadcopy_core::task::{build_adhoc_spec, AdhocRequest, ProjectChoice};
+
+fn config_with(dests: &[&Path]) -> (Config, String) {
+    let mut c = Config::default();
+    let mut p = Project::new("婚礼", datetime!(2026-08-08 09:30:00 UTC));
+    for d in dests {
+        let mut dc = DestinationConfig::new(*d);
+        dc.template = "{项目}/{日期}/{设备}".into();
+        p.destinations.push(dc);
+    }
+    let id = p.id.clone();
+    c.current_project = Some(id.clone());
+    c.projects.push(p);
+    (c, id)
+}
+
+fn adhoc_req(src: &Path, project: ProjectChoice) -> AdhocRequest {
+    AdhocRequest {
+        source_root: src.to_path_buf(),
+        // 与 spec_for 用同一套身份和模板——这个测试比的是「来源不同、产出相同」，
+        // 参数本身必须一模一样，否则比出来的差异说明不了任何问题
+        device_id: "vol-test-1".into(),
+        device_name: "A7M4主卡".into(),
+        project,
+        destinations: vec![],
+        verify: Some(true),
+        algorithm: Some(HashAlgorithm::Xxh64),
+        eject_after: false,
+    }
+}
+
+// spec: → Scenario: 与预设路径产出等价
+#[test]
+fn scenario_adhoc_copy_uses_the_same_execution_path() {
+    let h = harness();
+    let src = h.src.clone();
+    let by_preset = h.dest_a.clone();
+    let by_adhoc = h.dest_b.clone();
+
+    // 预设路径
+    let spec_a = spec_for(&src, &[&by_preset], true);
+    let (rep_a, _) = run(&h, &spec_a);
+    assert!(rep_a.all_succeeded());
+
+    // 临时路径：同一张卡、同样的参数，只是 spec 的来源不同
+    let (cfg, _) = config_with(&[&by_adhoc]);
+    let (spec_b, pending) = build_adhoc_spec(
+        &cfg,
+        &adhoc_req(&src, ProjectChoice::Existing(cfg.projects[0].id.clone())),
+        &[],
+        h.clock.now(),
+    )
+    .expect("临时规格");
+    assert!(pending.is_none());
+    let (rep_b, _) = run(&h, &spec_b);
+    assert!(rep_b.all_succeeded(), "临时路径必须同样全绿");
+
+    assert_eq!(rep_a.copied_count(), rep_b.copied_count());
+    assert_eq!(rep_a.bytes_copied, rep_b.bytes_copied);
+
+    // 逐字节比对两个目的地的**素材**。
+    // 凭证目录要排掉：清单里记着各自的目的地根路径，两边天然不同——
+    // 那是「凭证如实记录自己在哪」，不是产出不一致。
+    let media = |root: &Path| -> Vec<(String, u64, String)> {
+        snapshot(root)
+            .into_iter()
+            .filter(|(rel, _, _)| !rel.contains("/steadcopy/"))
+            .collect()
+    };
+    let a = media(&spec_a.destinations[0].root);
+    let b = media(&spec_b.destinations[0].root);
+    assert!(!a.is_empty(), "排完凭证不该一个素材都不剩");
+    assert_eq!(a.len(), b.len(), "两条路径拷出的文件数必须一致");
+    for ((ra, sa, ha), (rb, sb, hb)) in a.iter().zip(b.iter()) {
+        // 落地目录名不同（项目名相同、日期相同，所以相对路径其实一样）
+        assert_eq!(ra, rb, "相对路径必须一致");
+        assert_eq!(sa, sb, "大小必须一致");
+        assert_eq!(ha, hb, "哈希必须一致");
+    }
+}
+
+// spec: → Scenario: 安全标准不打折（清单与台账照落）
+#[test]
+fn scenario_adhoc_copy_writes_manifest_and_ledger() {
+    let h = harness();
+    let src = h.src.clone();
+    let dest = h.dest_a.clone();
+
+    let (cfg, pid) = config_with(&[&dest]);
+    let (spec, _) = build_adhoc_spec(
+        &cfg,
+        &adhoc_req(&src, ProjectChoice::Existing(pid)),
+        &[],
+        h.clock.now(),
+    )
+    .expect("规格");
+    let (report, _) = run(&h, &spec);
+
+    assert!(report.all_succeeded());
+    assert_eq!(report.manifests.len(), 1, "「不留配置」不等于「不留凭证」");
+
+    let landing = &spec.destinations[0].root;
+    let loaded = load_manifests(&spec_landing(&spec));
+    assert_eq!(loaded.manifests.len(), 1, "清单要落在落地目录里");
+    let (_, m) = &loaded.manifests[0];
+    assert_eq!(m.source.id, "vol-test-1");
+    assert!(!m.entries.is_empty());
+    assert!(
+        m.entries.iter().all(|e| e.verify.is_verified()),
+        "临时拷贝的条目同样必须是已校验的"
+    );
+    assert!(landing.exists());
+}
+
+// spec: → Scenario: 目的地重叠同样被拒
+#[test]
+fn scenario_adhoc_copy_rejects_destination_inside_source() {
+    let h = harness();
+    let src = h.src.clone();
+    let inside = src.join("备份");
+    let (cfg, pid) = config_with(&[&inside]);
+    let (spec, _) = build_adhoc_spec(
+        &cfg,
+        &adhoc_req(&src, ProjectChoice::Existing(pid)),
+        &[],
+        h.clock.now(),
+    )
+    .expect("规格本身合法");
+    assert!(
+        plan_task(&spec, h.io.as_ref()).is_err(),
+        "把卡拷进它自己，临时路径同样要拦"
+    );
+}
+
+// spec: → Scenario: 源卡只读
+#[test]
+fn scenario_adhoc_copy_respects_source_read_only() {
+    let h = harness();
+    let src = h.src.clone();
+    let before = snapshot(&src);
+
+    let dest = h.dest_a.clone();
+    let (cfg, pid) = config_with(&[&dest]);
+    let (spec, _) = build_adhoc_spec(
+        &cfg,
+        &adhoc_req(&src, ProjectChoice::Existing(pid)),
+        &[],
+        h.clock.now(),
+    )
+    .expect("规格");
+    run(&h, &spec);
+
+    assert_eq!(snapshot(&src), before, "临时拷贝同样 MUST NOT 动源卡");
+}
+
+/// 任务落地目录（模板渲染后的那一层的上一级根）。
+fn spec_landing(spec: &TaskSpec) -> PathBuf {
+    let ctx = spec.render_context();
+    let mut p = spec.destinations[0].root.clone();
+    for seg in spec.destinations[0].template.render_segments(&ctx) {
+        p.push(seg);
+    }
+    p
 }

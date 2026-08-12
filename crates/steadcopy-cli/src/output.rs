@@ -7,6 +7,8 @@
 //! 否则自动化侧没法直接 `| jq`。
 
 use serde::Serialize;
+use std::sync::OnceLock;
+
 use steadcopy_core::manifest::AuditReport;
 use steadcopy_core::organize::ScanResult;
 use steadcopy_core::task::{StageEvent, TaskPlan, TaskReport, TaskStage};
@@ -174,7 +176,7 @@ impl Emitter {
             _ => "·",
         };
         eprintln!("
-{mark} {}", o.summary());
+{mark} {}", o.summary(lang()));
         if let A::NeedsClassification { device_id, .. } = o {
             eprintln!("    指认：steadcopy device set-kind \"{device_id}\" camera");
         }
@@ -208,7 +210,7 @@ impl Emitter {
                 .unwrap_or_else(|| "当前项目".into());
             println!("{} {}  匹配 {} → 项目「{}」 校验 {}",
                 if p.enabled { "☑" } else { "☐" },
-                p.name, p.matcher.describe(), proj,
+                p.name, p.matcher.describe(lang()), proj,
                 if p.verify { "开" } else { "关" });
         }
     }
@@ -219,13 +221,13 @@ impl Emitter {
         let (ignored, active): (Vec<_>, Vec<_>) = c.devices.iter()
             .partition(|d| d.kind == steadcopy_core::device::DeviceKind::Ignored);
         for d in &active {
-            println!("{:<10} {:<20} {}", d.kind.label(), d.display_name(), d.id);
+            println!("{:<10} {:<20} {}", d.kind.label(lang()), d.display_name(), d.id);
         }
         if !ignored.is_empty() {
             println!("
 已忽略（插上不会打扰，可用 device set-kind 取消）");
             for d in &ignored {
-                println!("{:<10} {:<20} {}", d.kind.label(), d.display_name(), d.id);
+                println!("{:<10} {:<20} {}", d.kind.label(lang()), d.display_name(), d.id);
             }
         }
     }
@@ -535,4 +537,24 @@ impl Emitter {
             println!("  数据完好——清单记录的内容全部找得到");
         }
     }
+}
+
+/// 本次运行的语言。
+///
+/// 命令行是短命进程，启动时解析一次就够——**只写一次、之后只读**，
+/// 不是可变全局状态。用 `OnceLock` 而不是 `static mut` 是为了让这一点在类型上成立。
+static LANG: OnceLock<steadcopy_core::i18n::Locale> = OnceLock::new();
+
+/// 启动时定一次语言。`--lang` 优先于配置。
+pub fn set_lang(explicit: Option<&str>) {
+    let setting = explicit.map(str::to_string).unwrap_or_else(|| {
+        steadcopy_core::config::load()
+            .map(|c| c.settings.locale.clone())
+            .unwrap_or_else(|_| steadcopy_core::i18n::LOCALE_AUTO.to_string())
+    });
+    let _ = LANG.set(steadcopy_core::i18n::Locale::resolve(&setting));
+}
+
+pub fn lang() -> steadcopy_core::i18n::Locale {
+    *LANG.get_or_init(|| steadcopy_core::i18n::Locale::resolve(steadcopy_core::i18n::LOCALE_AUTO))
 }

@@ -248,6 +248,96 @@ pub fn validate_countdown(secs: u32) -> Result<u32, String> {
     Ok(secs)
 }
 
+/// 无卷标的卡改用这个词做确认。
+///
+/// 直接拿空卷标当确认串，「请输入卷标」会退化成「直接回车」——
+/// 摩擦归零，这一重确认等于不存在。无名卡在实际拍摄里很常见。
+pub const BLANK_LABEL_PHRASE: &str = "格式化";
+
+/// 这张卡要用户手输的确认串。有卷标就是卷标，没有就是固定词。
+pub fn confirmation_phrase(label: &str) -> &str {
+    let t = label.trim();
+    if t.is_empty() {
+        BLANK_LABEL_PHRASE
+    } else {
+        t
+    }
+}
+
+/// 手输的确认串是否对得上。
+///
+/// 规则只有一处实现。命令行与界面都调它——同一个安全判据在两处各写一遍，
+/// 迟早有一处漏掉 `trim` 或漏掉空卷标的情况，而那一处就是数据被误抹的入口。
+///
+/// 大小写**必须**严格匹配：卷标就在屏幕上摆着，抄一遍是刻意的摩擦，
+/// 放宽到不分大小写等于把摩擦削掉一半。
+pub fn label_matches(typed: &str, actual: &str) -> bool {
+    typed.trim() == confirmation_phrase(actual)
+}
+
+/// 「拷完自动格式化」的判定结论。
+///
+/// 是枚举不是 bool——没触发的原因必须能说出来。用户开了开关却没被提议格式化时，
+/// 「为什么没弹」比「弹不弹」更需要答案。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AutoFormatDecision {
+    /// 开关没开（默认状态）
+    Disabled,
+    /// 任务被取消
+    Cancelled,
+    /// 有文件失败
+    HasFailures,
+    /// 本次没开校验——没校验过就不算「确认拷好了」
+    NotVerified,
+    /// 有目的地没落下凭证，说明没写完
+    DestinationIncomplete,
+    /// 可以提议格式化。**仍然要走完整的安全链与倒计时确认。**
+    Propose,
+}
+
+impl AutoFormatDecision {
+    pub fn reason(&self) -> &'static str {
+        match self {
+            AutoFormatDecision::Disabled => "「拷完自动格式化」未开启",
+            AutoFormatDecision::Cancelled => "任务被取消，不提议格式化",
+            AutoFormatDecision::HasFailures => "有文件拷贝失败，不提议格式化",
+            AutoFormatDecision::NotVerified => "本次未做读回校验，不提议格式化",
+            AutoFormatDecision::DestinationIncomplete => "有目的地未落下凭证，不提议格式化",
+            AutoFormatDecision::Propose => "全部目的地完成且全部校验通过",
+        }
+    }
+}
+
+/// 一次任务跑完之后，判断能不能提议格式化源卡。
+///
+/// 判据一律取「实际发生了什么」，不取「本来打算怎么做」：
+/// 开关开着但这次关了校验、或者少写了一个目的地，都不算数。
+pub fn decide_auto_format(
+    enabled: bool,
+    verified_this_run: bool,
+    cancelled: bool,
+    failed_files: usize,
+    manifests_written: usize,
+    destinations_planned: usize,
+) -> AutoFormatDecision {
+    if !enabled {
+        return AutoFormatDecision::Disabled;
+    }
+    if cancelled {
+        return AutoFormatDecision::Cancelled;
+    }
+    if failed_files > 0 {
+        return AutoFormatDecision::HasFailures;
+    }
+    if !verified_this_run {
+        return AutoFormatDecision::NotVerified;
+    }
+    if destinations_planned == 0 || manifests_written < destinations_planned {
+        return AutoFormatDecision::DestinationIncomplete;
+    }
+    AutoFormatDecision::Propose
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -448,6 +538,85 @@ mod tests {
         let c = r.compact();
         assert!(c.contains("G1=fail"), "{c}");
         assert!(c.contains("G2=ok"), "{c}");
+    }
+
+    // spec: → 卷标输入不匹配则不可执行
+    #[test]
+    fn scenario_format_card_typed_label_must_match() {
+        assert!(label_matches("A7M4", "A7M4"));
+        // 前后空白无所谓——用户从界面复制常带空格
+        assert!(label_matches("  A7M4 ", "A7M4"));
+        assert!(label_matches("A7M4", " A7M4"));
+        // 大小写必须严格：抄一遍卷标就是刻意的摩擦
+        assert!(!label_matches("a7m4", "A7M4"));
+        assert!(!label_matches("A7M", "A7M4"));
+        assert!(!label_matches("", "A7M4"));
+        assert!(label_matches("未命名", "未命名"));
+
+        // 无卷标的卡：直接回车不算确认过，得输固定词
+        assert_eq!(confirmation_phrase(""), BLANK_LABEL_PHRASE);
+        assert_eq!(confirmation_phrase("  "), BLANK_LABEL_PHRASE);
+        assert_eq!(confirmation_phrase(" A7M4 "), "A7M4");
+        assert!(!label_matches("", "  "), "空对空放行等于这一重确认不存在");
+        assert!(!label_matches("  ", ""));
+        assert!(label_matches(BLANK_LABEL_PHRASE, ""));
+        assert!(label_matches(BLANK_LABEL_PHRASE, "   "));
+    }
+
+    // spec: → 全绿后按时执行 / 部分失败不触发自动格式化 / 关闭校验时不触发
+    #[test]
+    fn scenario_format_card_auto_format_only_when_everything_is_green() {
+        // 全绿：两个目的地都落了凭证、校验开着、零失败、没取消
+        assert_eq!(
+            decide_auto_format(true, true, false, 0, 2, 2),
+            AutoFormatDecision::Propose
+        );
+
+        // 开关没开是默认状态
+        assert_eq!(
+            decide_auto_format(false, true, false, 0, 2, 2),
+            AutoFormatDecision::Disabled
+        );
+        // 有失败文件
+        assert_eq!(
+            decide_auto_format(true, true, false, 1, 2, 2),
+            AutoFormatDecision::HasFailures
+        );
+        // 关了校验——没校验过就不算「确认拷好了」
+        assert_eq!(
+            decide_auto_format(true, false, false, 0, 2, 2),
+            AutoFormatDecision::NotVerified
+        );
+        // 被取消
+        assert_eq!(
+            decide_auto_format(true, true, true, 0, 2, 2),
+            AutoFormatDecision::Cancelled
+        );
+        // 少写了一个目的地
+        assert_eq!(
+            decide_auto_format(true, true, false, 0, 1, 2),
+            AutoFormatDecision::DestinationIncomplete
+        );
+        // 一个目的地都没有
+        assert_eq!(
+            decide_auto_format(true, true, false, 0, 0, 0),
+            AutoFormatDecision::DestinationIncomplete
+        );
+    }
+
+    // spec: → 不触发时原因可呈现（「为什么没弹」比「弹不弹」更需要答案）
+    #[test]
+    fn scenario_format_card_every_skip_reason_is_presentable() {
+        for d in [
+            AutoFormatDecision::Disabled,
+            AutoFormatDecision::Cancelled,
+            AutoFormatDecision::HasFailures,
+            AutoFormatDecision::NotVerified,
+            AutoFormatDecision::DestinationIncomplete,
+        ] {
+            assert!(!d.reason().is_empty(), "{d:?} 必须能说出没触发的原因");
+            assert_ne!(d, AutoFormatDecision::Propose);
+        }
     }
 
     // spec: → 倒计时参数

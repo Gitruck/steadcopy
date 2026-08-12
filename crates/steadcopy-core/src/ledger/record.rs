@@ -119,6 +119,7 @@ mod tests {
             verify: true,
             scan: ScanOptions::mirror(),
             retries: 2,
+            eject_after: false,
             at: datetime!(2026-08-10 09:00:00 UTC),
         }
     }

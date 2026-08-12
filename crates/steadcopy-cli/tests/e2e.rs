@@ -183,7 +183,9 @@ fn scenario_cli_driver_data_loss_exits_nonzero() {
     .expect("删文件");
 
     let o = run(&["audit", &mpath.display().to_string()]);
-    assert_eq!(code(&o), 2, "有数据丢失 MUST 以非零退出");
+    // 终态族：复验是对已落地数据做的，重跑同一份清单答案只会一样，
+    // 标成可重试会让脚本白白重试
+    assert_eq!(code(&o), 1, "有数据丢失 MUST 以非零退出，且是终态族");
 }
 
 // spec: → 人读与机读双输出 → Scenario: JSON 模式 stdout 纯净

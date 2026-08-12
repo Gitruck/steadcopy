@@ -33,9 +33,23 @@ pub const DEFAULT_CHUNK_SIZE: usize = 4 * 1024 * 1024;
 /// （峰值内存 ≈ 块大小 × 队列深度 × 目的地数）。
 pub const QUEUE_DEPTH: usize = 4;
 
-/// 取消令牌。读线程与写线程在每个块的边界检查，因此取消能在**一个块周期内**响应。
+/// 任务控制令牌：取消 + 暂停 / 继续。
+///
+/// 读线程在每个块的边界检查，因此指令能在**一个块周期内**响应。
+/// 暂停用条件变量而不是自旋——暂停可能持续几分钟（换硬盘、腾空间），
+/// 自旋等于让一个核空转到用户回来。
+///
+/// 取消优先于暂停：暂停中收到取消 MUST 立刻醒来退出，
+/// 否则「暂停了忘了继续」会让取消按钮变成摆设。
 #[derive(Debug, Clone, Default)]
-pub struct CancelToken(Arc<AtomicBool>);
+pub struct CancelToken(Arc<Control>);
+
+#[derive(Debug, Default)]
+struct Control {
+    cancelled: AtomicBool,
+    paused: Mutex<bool>,
+    resumed: std::sync::Condvar,
+}
 
 impl CancelToken {
     pub fn new() -> Self {
@@ -43,11 +57,46 @@ impl CancelToken {
     }
 
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
+        self.0.cancelled.store(true, Ordering::SeqCst);
+        // 叫醒可能正卡在暂停里的线程，否则取消要等到「继续」之后才生效
+        if let Ok(mut p) = self.0.paused.lock() {
+            *p = false;
+        }
+        self.0.resumed.notify_all();
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        self.0.cancelled.load(Ordering::SeqCst)
+    }
+
+    pub fn pause(&self) {
+        if let Ok(mut p) = self.0.paused.lock() {
+            *p = true;
+        }
+    }
+
+    pub fn resume(&self) {
+        if let Ok(mut p) = self.0.paused.lock() {
+            *p = false;
+        }
+        self.0.resumed.notify_all();
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.0.paused.lock().map(|p| *p).unwrap_or(false)
+    }
+
+    /// 处于暂停中就在这里等着，直到被继续或被取消。
+    pub fn wait_if_paused(&self) {
+        let Ok(mut p) = self.0.paused.lock() else {
+            return;
+        };
+        while *p && !self.0.cancelled.load(Ordering::SeqCst) {
+            match self.0.resumed.wait(p) {
+                Ok(g) => p = g,
+                Err(_) => return,
+            }
+        }
     }
 }
 
@@ -237,6 +286,8 @@ pub fn copy_reader_to_many<R: Read>(
     let mut read_error: Option<CoreError> = None;
 
     loop {
+        // 暂停点放在块边界：不会把一个块撕成两半，继续之后也不必回退
+        cancel.wait_if_paused();
         if cancel.is_cancelled() {
             break;
         }
@@ -528,6 +579,76 @@ mod tests {
             !dst.exists(),
             "取消后 MUST NOT 在目的地留下无标记的截断文件"
         );
+    }
+
+    // spec: → Scenario: 暂停后继续
+    #[test]
+    fn scenario_copy_engine_pause_then_resume_matches_uninterrupted_result() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let data = data_of(8 * 1024 * 1024);
+        let src = make_source(dir.path(), "src.bin", &data);
+        let dst = dir.path().join("d/a.bin");
+
+        let cancel = CancelToken::new();
+        let c2 = cancel.clone();
+        let paused_at = Arc::new(AtomicU64::new(0));
+        let seen = Arc::clone(&paused_at);
+
+        // 拷到一半按暂停，另起一个线程隔一会儿再继续
+        let resumer = std::thread::spawn(move || {
+            while seen.load(Ordering::SeqCst) == 0 {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(80));
+            assert!(c2.is_paused(), "这会儿应该还停着");
+            c2.resume();
+        });
+
+        let c3 = cancel.clone();
+        let mark = Arc::clone(&paused_at);
+        let r = copy_file_to_many(
+            &src,
+            std::slice::from_ref(&dst),
+            &PipelineOptions {
+                chunk_size: 256 * 1024,
+                ..Default::default()
+            },
+            &cancel,
+            &mut |n| {
+                if n > 1024 * 1024 && mark.load(Ordering::SeqCst) == 0 {
+                    c3.pause();
+                    mark.store(n, Ordering::SeqCst);
+                }
+            },
+        )
+        .expect("暂停后继续应正常完成");
+        resumer.join().expect("继续线程");
+
+        assert!(!r.cancelled, "暂停不是取消");
+        assert!(paused_at.load(Ordering::SeqCst) > 0, "没真的暂停过就白测了");
+        // 最终结果与不暂停执行一致：逐字节相同，哈希相同
+        assert_eq!(std::fs::read(&dst).expect("读回"), data);
+        assert!(r.source_hash.matches(&hash_bytes(HashAlgorithm::Xxh64, &data)));
+    }
+
+    // spec: → Scenario: 暂停后继续（取消优先于暂停）
+    #[test]
+    fn scenario_copy_engine_cancel_wakes_a_paused_task() {
+        // 「暂停了忘了继续」不能让取消按钮变成摆设
+        let cancel = CancelToken::new();
+        cancel.pause();
+        assert!(cancel.is_paused());
+
+        let c2 = cancel.clone();
+        let waiter = std::thread::spawn(move || {
+            c2.wait_if_paused();
+            c2.is_cancelled()
+        });
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        cancel.cancel();
+
+        assert!(waiter.join().expect("等待线程"), "取消应叫醒暂停中的线程");
+        assert!(!cancel.is_paused(), "取消之后不该还停着");
     }
 
     #[test]

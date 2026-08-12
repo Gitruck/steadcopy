@@ -10,7 +10,8 @@ use std::io::{IsTerminal, Write};
 
 use steadcopy_core::config::{self, model::new_id};
 use steadcopy_core::device::{
-    check_safety, enumerate_volumes, formatter, validate_countdown, BackupEvidence, Volume,
+    check_safety, confirmation_phrase, enumerate_volumes, formatter, label_matches,
+    validate_countdown, BackupEvidence, Volume,
 };
 use steadcopy_core::ledger::{HistoryQuery, Ledger};
 use steadcopy_core::manifest::{load_manifests, Manifest};
@@ -88,7 +89,7 @@ pub fn run(
         let reason = report
             .first_failure()
             .map(|c| format!("{}：{}", c.id, c.detail))
-            .unwrap_or_default();
+            .unwrap_or_else(|| "安全检查未通过（未能定位到具体是哪一项）".to_string());
         // 被拒的尝试同样留痕
         let _ = ledger.record_format_attempt(
             &attempt_id, now, &device_id, &device_name, "cli",
@@ -201,13 +202,15 @@ fn confirm_interactively(out: &mut Emitter, vol: &Volume, secs: u32) -> Result<b
         vol.file_system,
         vol.label
     ));
-    eprint!("请输入这张卡的卷标以确认（当前卷标：{}）：", vol.label);
+    // 无卷标的卡用固定词，否则「输入卷标」会退化成直接回车
+    let phrase = confirmation_phrase(&vol.label);
+    eprint!("请输入「{phrase}」以确认：");
     let _ = std::io::stderr().flush();
     let mut line = String::new();
     std::io::stdin()
         .read_line(&mut line)
         .map_err(|e| e.to_string())?;
-    if line.trim() != vol.label.trim() {
+    if !label_matches(&line, &vol.label) {
         out.note("卷标不匹配");
         return Ok(false);
     }

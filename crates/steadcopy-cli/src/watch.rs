@@ -75,7 +75,12 @@ pub fn run(
     out.watch_ready(&cfg, &config::config_path().display().to_string());
 
     // 启动时先把已经插着的设备过一遍——用户可能先插卡后开程序
-    for vol in enumerate_volumes().unwrap_or_default() {
+    // 枚举失败不能静默变成「没有设备」——那会让 watch 看起来在跑其实什么也收不到
+    let initial = enumerate_volumes().unwrap_or_else(|e| {
+        out.warn(&format!("枚举卷失败：{e}"));
+        Vec::new()
+    });
+    for vol in initial {
         if vol.can_be_source(&[]) {
             handle(&mut cfg, &vol, io.as_ref(), &clock, out, yes)?;
         }
@@ -106,7 +111,15 @@ fn resolve_volume(letter: Option<&str>) -> Option<Volume> {
         if delay_ms > 0 {
             std::thread::sleep(std::time::Duration::from_millis(delay_ms));
         }
-        let vols = enumerate_volumes().unwrap_or_default();
+        // 这一轮枚举失败就换下一轮退避重试；四轮都失败会走到函数末尾的 None，
+        // 调用方据此报「设备暂不可用」——不会静默当成「没有这个卷」
+        let vols = match enumerate_volumes() {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::info!("枚举卷失败（{e}），退避后重试");
+                continue;
+            }
+        };
         let found = match letter {
             Some(l) => vols
                 .into_iter()

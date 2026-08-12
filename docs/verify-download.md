@@ -15,15 +15,19 @@ Get-FileHash .\稳拷_0.1.0_x64-setup.exe -Algorithm SHA256
 
 1. GitHub Releases 页面的 `SHA256SUMS.txt`
 2. 官网下载页
-3. 应用内「关于 → 安装包校验码」
+3. 应用内「设置 → 关于」里的核对说明
 
 **一致才安装。** 不一致说明文件在传输中损坏，或者你拿到的不是官方构建——国内下载站二次打包是真实存在的事，请回官方渠道重新下载。
 
 ## 本次发布的校验码
 
 ```
-6470747a3ee71176ff57137f4a7b35361a75f2bdb8c7ec5d90582a50b7027585  稳拷_0.1.0_x64-setup.exe
+d49dc5ea301cc7dfc904988b86f4bd15bd7975be921268489975f88a426961d1  稳拷_0.1.0_x64-setup.exe
+2a3c446a13fab5cd3c70d7636eebbb022eb483dc187dcf6afcbf5c742bf853ab  steadcopy-0.1.0-portable.zip
 ```
+
+以 `release/SHA256SUMS.txt` 为准，它由 `scripts/build-release.py` 在打包的同一次运行里生成，
+不是事后手抄的。
 
 ## 不要做的事
 
@@ -37,7 +41,15 @@ Get-FileHash .\稳拷_0.1.0_x64-setup.exe -Algorithm SHA256
 
 ## 为什么安装包这么大
 
-约 200 MB，因为把 **WebView2 运行时完整打进去了**。
+约 205 MB，因为把 **WebView2 运行时完整打进去了**。
 
 片场、外景、机房经常没网。安装一个备份工具时才发现「需要联网下载组件」是不可接受的，
-所以我们选择把体积背上。装完之后应用本体只有约 10 MB。
+所以我们选择把体积背上。装完之后应用本体只有约 12 MB。
+
+## 便携版
+
+`steadcopy-0.1.0-portable.zip`（约 6 MB）解压即用：数据全部落在同目录的 `data\` 里，
+不写注册表，整个文件夹拷到别的机器上照样能用，卸载就是删文件夹。便携版与安装版的数据
+是分开的，同一台机器上并存也互不影响。
+
+便携版**不含** WebView2 运行时。Windows 11 与 Windows 10 22H2 自带；更旧的系统请用安装包。

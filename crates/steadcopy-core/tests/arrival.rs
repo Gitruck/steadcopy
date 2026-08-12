@@ -8,6 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
+use steadcopy_core::i18n::Locale;
 use steadcopy_core::config::model::{Config, DestinationConfig, Project};
 use steadcopy_core::device::{BusType, DeviceKind, Volume, VolumeState};
 use steadcopy_core::platform::{volume_io, VolumeIo};
@@ -233,7 +234,7 @@ fn scenario_preset_autorun_no_preset_is_reported_not_defaulted() {
         other => panic!("无匹配应如实报告，实际 {other:?}"),
     }
     assert!(!f.dest.exists(), "无预设 MUST NOT 用默认项目静默开跑");
-    assert!(out.summary().contains("预设"), "结论要能告诉用户怎么办");
+    assert!(out.summary(Locale::Zh).contains("预设"), "结论要能告诉用户怎么办");
 }
 
 #[test]
@@ -249,7 +250,7 @@ fn scenario_preset_autorun_no_project_is_reported() {
 
     let out = arrive(&mut f, &vol, &[]);
     assert!(matches!(out, ArrivalOutcome::NoProject { .. }), "实际 {out:?}");
-    assert!(out.summary().contains("项目"));
+    assert!(out.summary(Locale::Zh).contains("项目"));
 }
 
 #[test]
@@ -275,15 +276,15 @@ fn scenario_preset_autorun_every_outcome_has_readable_summary() {
 
     // 未分类
     let a = arrive(&mut f, &vol, &[]);
-    assert!(a.summary().contains("指认"), "{}", a.summary());
+    assert!(a.summary(Locale::Zh).contains("指认"), "{}", a.summary(Locale::Zh));
 
     // 已规划
     classify(&mut f, &vol, DeviceKind::Camera);
     let b = arrive(&mut f, &vol, &[]);
-    assert!(b.summary().contains("婚礼") || b.summary().contains("确认"), "{}", b.summary());
+    assert!(b.summary(Locale::Zh).contains("婚礼") || b.summary(Locale::Zh).contains("确认"), "{}", b.summary(Locale::Zh));
 
     // 每种结论都得是中文人话，不能是空串或英文枚举名
-    for s in [a.summary(), b.summary()] {
+    for s in [a.summary(Locale::Zh), b.summary(Locale::Zh)] {
         assert!(!s.is_empty());
         assert!(!s.is_ascii(), "结论应为中文：{s}");
     }
@@ -343,5 +344,78 @@ fn scenario_preset_autorun_device_specific_preset_wins() {
                 .contains("专项"));
         }
         other => panic!("实际 {other:?}"),
+    }
+}
+
+// spec: preset-autorun → 到达编排 → Scenario: 每个结论带出口
+#[test]
+fn scenario_preset_autorun_every_outcome_offers_a_next_step() {
+    use steadcopy_core::preset::NextStep;
+
+    // 「不能做」的结论里，只有两种允许没有出路：设备是用户自己标的忽略、
+    // 以及该设备上已有任务在跑（等着就行）。其余每一个都必须给出路。
+    let cases: Vec<(&str, ArrivalOutcome, bool)> = vec![
+        (
+            "需指认",
+            ArrivalOutcome::NeedsClassification {
+                device_id: "vol:1".into(),
+                suggested_name: "扩展".into(),
+            },
+            true,
+        ),
+        ("已忽略", ArrivalOutcome::Ignored { device_id: "vol:1".into() }, false),
+        (
+            "已在跑",
+            ArrivalOutcome::AlreadyRunning { device_id: "vol:1".into() },
+            false,
+        ),
+        (
+            "无预设",
+            ArrivalOutcome::NoPreset {
+                device_id: "vol:1".into(),
+                device_name: "扩展".into(),
+            },
+            true,
+        ),
+        (
+            "无项目",
+            ArrivalOutcome::NoProject { preset_name: "摄影卡".into() },
+            true,
+        ),
+        (
+            "无素材",
+            ArrivalOutcome::NoSource { device_name: "扩展".into() },
+            true,
+        ),
+        (
+            "无新素材",
+            ArrivalOutcome::NoNewSource { device_name: "扩展".into() },
+            true,
+        ),
+        (
+            "空间不足",
+            ArrivalOutcome::InsufficientSpace {
+                device_name: "扩展".into(),
+                landing_dir: r"D:\素材".into(),
+                required_bytes: 100,
+                available_bytes: Some(10),
+            },
+            true,
+        ),
+    ];
+
+    for (name, outcome, wants_exit) in cases {
+        let step = outcome.next_step();
+        if wants_exit {
+            assert_ne!(
+                step,
+                NextStep::Nothing,
+                "「{name}」这个结论必须给一条出路——只告知不给下一步等于死路装修了一下"
+            );
+            assert!(!step.label(Locale::Zh).is_empty(), "「{name}」的出口得有文案");
+        } else {
+            assert_eq!(step, NextStep::Nothing, "「{name}」不该催用户做什么");
+        }
+        assert!(!outcome.summary(Locale::Zh).is_empty(), "「{name}」必须有一句人话结论");
     }
 }

@@ -35,11 +35,17 @@ impl PresetMatch {
         }
     }
 
-    pub fn describe(&self) -> String {
+    pub fn describe(&self, lang: crate::i18n::Locale) -> String {
+        use crate::i18n::Locale;
         match self {
-            PresetMatch::Device { .. } => "指定设备".into(),
-            PresetMatch::Kind { device_kind } => format!("全部{}", device_kind.label()),
-            PresetMatch::AnyClassifiedSource => "任何已分类的源设备".into(),
+            PresetMatch::Device { .. } => lang.pick("指定设备", "A specific device").into(),
+            PresetMatch::Kind { device_kind } => match lang {
+                Locale::Zh => format!("全部{}", device_kind.label(lang)),
+                Locale::En => format!("All {}s", device_kind.label(lang).to_lowercase()),
+            },
+            PresetMatch::AnyClassifiedSource => lang
+                .pick("任何已分类的源设备", "Any identified source device")
+                .into(),
         }
     }
 }
@@ -132,9 +138,9 @@ mod tests {
             PresetMatch::Kind {
                 device_kind: DeviceKind::Camera
             }
-            .describe(),
+            .describe(crate::i18n::Locale::Zh),
             "全部摄影卡"
         );
-        assert!(!PresetMatch::AnyClassifiedSource.describe().is_ascii());
+        assert!(!PresetMatch::AnyClassifiedSource.describe(crate::i18n::Locale::Zh).is_ascii());
     }
 }

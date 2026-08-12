@@ -298,7 +298,8 @@ pub fn sanitize_segment(raw: &str) -> String {
     }
 
     // 保留设备名：整段等于保留名、或以「保留名.」开头，均需改写。
-    let stem_upper = out.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    // split 至少给一段；给不出只可能是空串
+    let stem_upper = out.split('.').next().unwrap_or("").to_ascii_uppercase();
     if RESERVED_NAMES.contains(&stem_upper.as_str()) {
         out.push(REPLACEMENT);
     }

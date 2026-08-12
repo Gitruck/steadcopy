@@ -47,7 +47,7 @@ impl DestinationConfig {
 pub struct Project {
     pub id: String,
     pub name: String,
-    #[serde(with = "time::serde::rfc3339")]
+    #[serde(with = "crate::serde_time")]
     pub created_at: OffsetDateTime,
     pub destinations: Vec<DestinationConfig>,
 }
@@ -85,6 +85,13 @@ pub struct Settings {
     pub format_after_copy: bool,
     /// 不可逆操作的确认倒计时（秒）。默认 30，最小 10
     pub countdown_secs: u32,
+    /// 界面与命令行的语言：`auto` / `zh` / `en`。默认跟随系统，判不出来落中文
+    #[serde(default = "default_locale")]
+    pub locale: String,
+}
+
+fn default_locale() -> String {
+    crate::i18n::LOCALE_AUTO.to_string()
 }
 
 impl Default for Settings {
@@ -98,6 +105,7 @@ impl Default for Settings {
             notify_on_finish: true,
             eject_after: false,
             format_after_copy: false,
+            locale: default_locale(),
             countdown_secs: crate::device::COUNTDOWN_DEFAULT_SECS,
         }
     }

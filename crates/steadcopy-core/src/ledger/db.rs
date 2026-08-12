@@ -368,7 +368,12 @@ impl Ledger {
                     failed: r.get::<_, i64>(12)? as u64,
                     status: TaskStatus::parse(&r.get::<_, String>(13)?),
                     elapsed_secs: r.get::<_, i64>(14)? as u64,
-                    manifests: serde_json::from_str(&manifests).unwrap_or_default(),
+                    // 这一列坏了只影响「能不能打开报告」，不影响这条记录本身的可信度，
+                    // 所以退化成空列表是可接受的降级——但要留下痕迹，不是当无事发生
+                    manifests: serde_json::from_str(&manifests).unwrap_or_else(|e| {
+                        tracing::warn!("台账记录的清单路径列解析失败（{e}），本条按无清单呈现");
+                        Vec::new()
+                    }),
                 })
             })
             .map_err(e)?;
@@ -661,7 +666,7 @@ mod tests {
     fn scenario_task_ledger_limit() {
         let l = Ledger::open_in_memory().expect("建库");
         for i in 0..5 {
-            l.record_task(&task(&format!("{}", "t".repeat(i + 1)), TaskStatus::Ok, "x"), &[])
+            l.record_task(&task(&"t".repeat(i + 1), TaskStatus::Ok, "x"), &[])
                 .expect("记");
         }
         let some = l

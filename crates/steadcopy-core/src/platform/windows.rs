@@ -246,11 +246,16 @@ impl VolumeIo for WindowsVolumeIo {
     }
 
     fn long_path(&self, path: &Path) -> PathBuf {
-        let s = path.to_string_lossy();
-        // 已经带前缀、或是 UNC、或是相对路径，都原样返回。
-        if s.starts_with(r"\\?\") || s.starts_with(r"\\.\") || !path.is_absolute() {
+        let raw = path.to_string_lossy();
+        // 已经带前缀、或是相对路径，原样返回
+        if raw.starts_with(r"\\?\") || raw.starts_with(r"\\.\") || !path.is_absolute() {
             return path.to_path_buf();
         }
+        // **正斜杠必须先换成反斜杠。** `\\?\` 前缀会关掉系统的路径规范化，
+        // 之后系统不再把 `/` 当分隔符——`\\?\C:/a/b` 会被当成一个叫「C:/a/b」的
+        // 怪名字，打开必然失败。命令行传 `D:/素材` 这种写法很常见，
+        // Rust 的 Path 也照收不误，所以这一步不能省。
+        let s = raw.replace('/', "\\");
         if let Some(unc) = s.strip_prefix(r"\\") {
             // UNC：\\server\share → \\?\UNC\server\share
             return PathBuf::from(format!(r"\\?\UNC\{unc}"));
@@ -373,6 +378,22 @@ mod tests {
         );
         // 相对路径原样
         assert_eq!(io.long_path(Path::new(r"a\b")), PathBuf::from(r"a\b"));
+
+        // **正斜杠必须先归一。** `\\?\` 会关掉路径规范化，`\\?\C:/a/b` 之后
+        // 系统不再把 `/` 当分隔符，会去找一个叫「C:/a/b」的东西然后失败。
+        // 命令行里 `steadcopy copy D:/素材` 是很自然的写法，Rust 的 Path 也照收。
+        assert_eq!(
+            io.long_path(Path::new("D:/素材/婚礼/a.mp4")),
+            PathBuf::from(r"\\?\D:\素材\婚礼\a.mp4")
+        );
+        assert_eq!(
+            io.long_path(Path::new(r"D:/素材\混着写/b.xml")),
+            PathBuf::from(r"\\?\D:\素材\混着写\b.xml")
+        );
+        assert_eq!(
+            io.long_path(Path::new("//server/share/x")),
+            PathBuf::from(r"\\?\UNC\server\share\x")
+        );
     }
 
     #[test]

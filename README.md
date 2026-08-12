@@ -4,6 +4,8 @@
 
 面向中文创作者与小团队的 Windows 拷卡（DIT offload）工具。开源、MIT、**长期免费且含商用**。
 
+> English: [README.en.md](README.en.md)
+
 ---
 
 ## 为什么又做一个
@@ -33,6 +35,13 @@
 - **中文人话报告**：单文件 HTML，样式内联、可离线打开、可打印成 PDF，应用内直接查看
 - **凭证随数据走**：清单落在目的地目录内，整个目录搬走凭证跟着走
 - **源卡只读**：绝不向源设备写入任何东西，包括设备标记
+- **预设任务 + 插卡即跑**：卡插上就知道该拷进哪个项目、用什么参数。匹配由窄到宽三档（指定设备 / 某类设备 / 任何已分类的源），顺序即优先级
+- **插卡之后一定有结论**：九种「为什么没跑起来」各自可呈现——从未见过要先指认、已被忽略、没有匹配的预设、没有新素材、空间不足……不存在「插了卡什么都没发生」
+- **未分类设备永不自动开跑**：从没见过的设备一律停在指认这一步，危险区的「跳过确认」也绕不过去。拷贝是可恢复的，往不知道是什么的设备上自动动手不是
+- **暂停 / 继续 / 取消**：块边界响应；暂停中按取消会立刻醒
+- **安全弹出**：锁定 → 卸载 → 弹出，走系统接口，不依赖任何外部程序
+- **任务台账**：SQLite 存历史、文件明细与格式化留痕；schema 版本化，损坏不静默重建
+- **格式化在危险区**：默认关，双重确认（手输确认串 + 倒计时，最少 10 秒），安全链 G1–G4 逐项过，成功、失败、被拒、被取消一律留痕
 
 ## 下载与校验
 
@@ -62,28 +71,44 @@ steadcopy plan E:\ -d D:\素材 -d F:\备份 -p 婚礼      # 预演，零副作
 steadcopy copy E:\ -d D:\素材 -d F:\备份 -p 婚礼      # 执行
 steadcopy audit <清单.json>                          # 复验，四态结果
 steadcopy report <清单.json>                         # 由清单生成报告
+steadcopy watch                                      # 事件驱动守着，插卡即按预设跑
+steadcopy project / preset / device / config         # 项目、预设、设备记忆、设置
+steadcopy eject E:                                   # 安全弹出
+steadcopy format E: --yes-i-know-this-erases-data    # ⚠️ 危险参数刻意冗长
 ```
 
-每个命令都支持 `--json`（stdout 只出 JSON，日志走 stderr）。退出码：`0` 成功 / `1` 终态族 / `2` 可重试族 / `3` 取消 / `4` 用法错误。「无新素材」是正常结果，退出码是 `0`。
+每个命令都支持 `--json`（stdout 只出 JSON，日志走 stderr）。退出码：`0` 成功 / `1` 终态族 / `2` 可重试族 / `3` 取消 / `4` 用法错误。「无新素材」是正常结果，退出码是 `0`；复验查出丢失是终态族 `1`（重跑同一份清单答案只会一样）。
 
 ## 从源码构建
 
 ```bash
-cargo test              # 引擎与命令行（安全轨，零副作用）
-cargo build --release   # 命令行
-cd app && bun install && bunx tauri build   # 桌面应用与安装包
+cargo test                          # 引擎与命令行（安全轨，零副作用）
+python scripts/check-scenarios.py   # spec 场景 ↔ 测试覆盖自检
+python scripts/build-release.py     # 一条命令出全部发布产物
 ```
 
-需要 Rust 1.96+、Bun、以及 Windows 的 MSVC 生成工具。
+`build-release.py` 依次做：许可闸门（发现 GPL 系依赖直接拦下）→ 安全轨测试 → 静态检查 → 命令行 → 安装包 → 便携版 → 校验码。产物落在 `release/`。
+
+需要 Rust 1.85+、Bun、Python 3、以及 Windows 的 MSVC 生成工具。
+
+## 语言
+
+中文与英文，默认跟随系统，可在「设置 → 语言」切换，切完即时生效。
+
+> **当前状态如实说明**：界面骨架、插卡即跑链路、编排结论已全量双语；长尾还是中文——报告 HTML、命令行大部分输出、安全检查的细节、部分错误描述。这些**只会退回中文，不会变空白**：文案表是穷尽 `match`，缺的是译文不是分支。进度见 `openspec/changes/add-steadcopy-i18n/tasks.md` 第 6 节。
 
 ## 已知边界
 
 - **仅 Windows**。核心是平台无关的，mac 的位置留着了，但没做。
 - **手机走 MTP，做不到可信备份**。安卓与 iPhone 在 Windows 上是「便携设备」，没有盘符也不是文件系统对象：没有块级校验、文件大小可能被 32 位截断、时间戳不可信、≥4 GB 高危。目前建议手机用 SD 卡或外置 SSD，相机用读卡器。
 - **iPhone 默认会把 HEIC/HEVC 转码成 JPEG/H.264 再传给电脑**（设置 → 应用 → 照片 → 传输到 Mac 或 PC）。转码发生在手机端，任何拷贝路径都逃不掉——**默认设置下你拿到的不是原文件**。要备份原片请先改成「保留原始格式」。
-- 格式化、插卡自动检测、任务台账数据库尚未完成，见 `openspec/changes/`。
+- **没有更新检查**。V1 完全不联网：没有账号、没有遥测、没有自动更新，也不做后台更新检查。代价是新版本要用户自己去项目页面看。
+- **格式化能力以虚拟机验收结论为准**。它是唯一会不可逆销毁数据的功能，验收不在开发机上做，见 `docs/danger-tests.md` 与 `docs/release-checklist.md` 的 R5。
+- **便携版依赖系统 WebView2**。安装包内置离线运行时，便携版没有；Win11 与 Win10 22H2 自带，更旧的系统请用安装包。
 
-设备接入方式的完整调研见 [`docs/source-devices.md`](docs/source-devices.md)。
+设备接入方式的完整调研见 [`docs/source-devices.md`](docs/source-devices.md)，
+跨层命令与事件契约见 [`docs/facade-contract.md`](docs/facade-contract.md)，
+V1 能测什么 / 刻意没做什么见 [`docs/v1-acceptance.md`](docs/v1-acceptance.md)。
 
 ## 工作制度
 
@@ -92,6 +117,8 @@ cd app && bun install && bunx tauri build   # 桌面应用与安装包
 - **SDD**：OpenSpec，禁 propose→apply 一把梭，人审是不可跳过的闸门
 - **TDD**：规格锚定的 Detroit 式——每条 spec 场景对应一个同名测试；不 mock 文件系统，用真实临时目录 IO；对抗测试是一等公民
 - **双轨约束**：会格式化、需管理员、碰物理设备的测试进危险轨，三重闸门且**不在开发机执行**，登记在 [`docs/danger-tests.md`](docs/danger-tests.md)
+
+发版前逐项走 [`docs/release-checklist.md`](docs/release-checklist.md) 的 R1–R14，任一项未过就不发版。
 
 ## 许可
 

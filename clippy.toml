@@ -1,0 +1,15 @@
+# 数据完整性防线的**机械**部分。
+#
+# 规范：openspec/changes/add-steadcopy-core/tasks.md 1.5
+#
+# 前身项目的一号缺陷是这样一行：哈希算失败了就返回空字符串，
+# 于是「空 == 空」，校验永远通过。整条校验链因此变成了摆设，
+# 而且**看起来一切正常**——这类 bug 不会报错，只会让人以为拷对了。
+#
+# 靠自觉不写这种代码是不够的，所以在这里把「静默降级」的常见写法禁掉。
+# 真需要默认值的地方用 `unwrap_or_else` 显式写出来，写的时候就得想一下
+# 「这个默认值在语义上说得通吗」——那一秒钟的思考就是这条规则的全部价值。
+disallowed-methods = [
+    { path = "std::option::Option::unwrap_or_default", reason = "静默降级：数据完整性路径上「取不到就当默认值」正是前身出事的写法。要默认值请用 unwrap_or_else 显式写出理由" },
+    { path = "std::result::Result::unwrap_or_default", reason = "同上。错误被吞掉之后没有任何人会知道" },
+]

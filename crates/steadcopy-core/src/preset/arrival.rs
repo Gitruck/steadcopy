@@ -18,6 +18,7 @@
 use time::OffsetDateTime;
 
 use crate::config::model::{ArrivalMode, Config};
+use crate::i18n::Locale;
 use crate::device::{DeviceKind, DeviceRecord, Volume};
 use crate::manifest::model::SourceRef;
 use crate::organize::ScanOptions;
@@ -66,7 +67,61 @@ pub enum ArrivalOutcome {
     },
 }
 
+/// 一个未进入执行的结论该给用户什么出路。
+///
+/// **每一个「不能做」的结论都要带一个「那就这样做」。** 用户看到「没有匹配的预设」时
+/// 需要的不是解释，是出路——把原因说清楚却不给下一步，等于把死路装修了一下。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NextStep {
+    /// 指认类型，或者「就拷这一次」
+    ClassifyOrCopyOnce,
+    /// 直接开一次临时拷贝
+    CopyOnce,
+    /// 换个目的地，或者「就拷这一次」拷去别处
+    ChooseAnotherDestination,
+    /// 去看上一次的报告（没新素材时，用户想确认的是「上次拷好了吗」）
+    ViewLastReport,
+    /// 确认后开跑
+    ConfirmAndRun,
+    /// 什么都不用做
+    Nothing,
+}
+
+impl NextStep {
+    /// 给按钮用的文案。措辞是动作，不是功能名。
+    ///
+    /// 穷尽 `match`：新增一个变体或一种语言，编译器会把这里点出来。
+    pub const fn label(&self, lang: Locale) -> &'static str {
+        match self {
+            NextStep::ClassifyOrCopyOnce => lang.pick("指认类型，或就拷这一次", "Identify it, or copy just once"),
+            NextStep::CopyOnce => lang.pick("就拷这一次", "Copy just once"),
+            NextStep::ChooseAnotherDestination => lang.pick("换个目的地", "Choose another destination"),
+            NextStep::ViewLastReport => lang.pick("看上次的报告", "View the last report"),
+            NextStep::ConfirmAndRun => lang.pick("开始拷贝", "Start copying"),
+            NextStep::Nothing => "",
+        }
+    }
+}
+
 impl ArrivalOutcome {
+    /// 这个结论给用户留的出路。
+    pub const fn next_step(&self) -> NextStep {
+        match self {
+            ArrivalOutcome::NeedsClassification { .. } => NextStep::ClassifyOrCopyOnce,
+            // 已忽略是用户自己设的，不该反过来催他；已有任务在跑等着就行
+            ArrivalOutcome::Ignored { .. } | ArrivalOutcome::AlreadyRunning { .. } => {
+                NextStep::Nothing
+            }
+            // 这三种都是「配置没到位」，而配置不该是拷贝的前置条件
+            ArrivalOutcome::NoPreset { .. }
+            | ArrivalOutcome::NoProject { .. }
+            | ArrivalOutcome::NoSource { .. } => NextStep::CopyOnce,
+            ArrivalOutcome::NoNewSource { .. } => NextStep::ViewLastReport,
+            ArrivalOutcome::InsufficientSpace { .. } => NextStep::ChooseAnotherDestination,
+            ArrivalOutcome::Planned { .. } => NextStep::ConfirmAndRun,
+        }
+    }
+
     /// 这次到达是否需要用户做点什么（界面据此决定要不要弹东西）。
     pub fn needs_attention(&self) -> bool {
         !matches!(
@@ -76,42 +131,68 @@ impl ArrivalOutcome {
     }
 
     /// 给用户看的一句话结论。
-    pub fn summary(&self) -> String {
+    ///
+    /// 产的是**成句**而不是片段——中英语序差别很大（「X 的 Y 不足」vs "Not enough Y on X"），
+    /// 交给消费层拼装等于把语序知识复制两份。
+    pub fn summary(&self, lang: Locale) -> String {
         match self {
-            ArrivalOutcome::NeedsClassification { suggested_name, .. } => {
-                format!("发现新设备「{suggested_name}」，请先指认它是什么")
-            }
-            ArrivalOutcome::Ignored { .. } => "该设备已被忽略".into(),
-            ArrivalOutcome::AlreadyRunning { .. } => "该设备上已有任务在进行".into(),
-            ArrivalOutcome::NoPreset { device_name, .. } => {
-                format!("「{device_name}」没有匹配的预设任务，去配一条或手动选参数")
-            }
-            ArrivalOutcome::NoProject { preset_name } => {
-                format!("预设「{preset_name}」还没有可用的项目，请先建一个项目")
-            }
-            ArrivalOutcome::NoSource { device_name } => {
-                format!("「{device_name}」上没有可拷贝的素材")
-            }
-            ArrivalOutcome::NoNewSource { device_name } => {
-                format!("「{device_name}」没有新素材，此前已拷并校验通过")
-            }
+            ArrivalOutcome::NeedsClassification { suggested_name, .. } => match lang {
+                Locale::Zh => format!("发现新设备「{suggested_name}」，请先指认它是什么"),
+                Locale::En => format!("New device \"{suggested_name}\" — tell me what it is first"),
+            },
+            ArrivalOutcome::Ignored { .. } => lang
+                .pick("该设备已被忽略", "This device is on the ignore list")
+                .into(),
+            ArrivalOutcome::AlreadyRunning { .. } => lang
+                .pick("该设备上已有任务在进行", "A task is already running on this device")
+                .into(),
+            ArrivalOutcome::NoPreset { device_name, .. } => match lang {
+                Locale::Zh => format!("「{device_name}」没有匹配的预设任务，去配一条或手动选参数"),
+                Locale::En => {
+                    format!("No preset matches \"{device_name}\" — set one up, or copy just once")
+                }
+            },
+            ArrivalOutcome::NoProject { preset_name } => match lang {
+                Locale::Zh => format!("预设「{preset_name}」还没有可用的项目，请先建一个项目"),
+                Locale::En => format!("Preset \"{preset_name}\" has no usable project yet"),
+            },
+            ArrivalOutcome::NoSource { device_name } => match lang {
+                Locale::Zh => format!("「{device_name}」上没有可拷贝的素材"),
+                Locale::En => format!("Nothing to copy on \"{device_name}\""),
+            },
+            ArrivalOutcome::NoNewSource { device_name } => match lang {
+                Locale::Zh => format!("「{device_name}」没有新素材，此前已拷并校验通过"),
+                Locale::En => {
+                    format!("Nothing new on \"{device_name}\" — already copied and verified")
+                }
+            },
             ArrivalOutcome::InsufficientSpace {
                 device_name,
                 landing_dir,
                 ..
-            } => format!("拷贝「{device_name}」的目的地空间不足：{landing_dir}"),
+            } => match lang {
+                Locale::Zh => format!("拷贝「{device_name}」的目的地空间不足：{landing_dir}"),
+                Locale::En => {
+                    format!("Not enough space to copy \"{device_name}\" to {landing_dir}")
+                }
+            },
             ArrivalOutcome::Planned {
                 device_name,
                 preset_name,
                 requires_confirmation,
                 ..
-            } => {
-                if *requires_confirmation {
+            } => match (lang, *requires_confirmation) {
+                (Locale::Zh, true) => {
                     format!("「{device_name}」已按预设「{preset_name}」准备好，确认后开始")
-                } else {
-                    format!("「{device_name}」已按预设「{preset_name}」自动开始")
                 }
-            }
+                (Locale::Zh, false) => format!("「{device_name}」已按预设「{preset_name}」自动开始"),
+                (Locale::En, true) => {
+                    format!("\"{device_name}\" is ready via preset \"{preset_name}\" — confirm to start")
+                }
+                (Locale::En, false) => {
+                    format!("\"{device_name}\" started automatically via preset \"{preset_name}\"")
+                }
+            },
         }
     }
 }
@@ -268,6 +349,7 @@ pub fn build_spec(
         verify: preset.verify,
         scan: ScanOptions::mirror(),
         retries: config.settings.retries,
+        eject_after: preset.eject_after || config.settings.eject_after,
         at: now,
     })
 }

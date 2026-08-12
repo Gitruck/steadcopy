@@ -37,6 +37,10 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
+    /// 本次输出用哪种语言：auto / zh / en。默认读配置，配置里默认跟随系统
+    #[arg(long, global = true)]
+    lang: Option<String>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -107,6 +111,11 @@ enum Command {
         /// 覆盖倒计时秒数（最小 10）
         #[arg(long)]
         countdown: Option<u32>,
+    },
+    /// 安全弹出一个卷（锁定 → 卸载 → 弹出，不依赖任何外部程序）
+    Eject {
+        /// 目标卷（盘符如 E: 或卷 GUID）
+        target: String,
     },
     /// 由一份清单生成 HTML 报告（单文件、可离线打开、可打印为 PDF）
     Report {
@@ -182,6 +191,9 @@ impl TaskArgs {
                 .collect(),
             algorithm,
             verify: !self.no_verify,
+            // 命令行不自动弹卡：脚本调用时把卡弹掉是意外副作用，
+            // 要弹就显式跑 `steadcopy eject`
+            eject_after: false,
             scan: ScanOptions::mirror(),
             retries: self.retries,
             at: SystemClock.now(),
@@ -191,6 +203,8 @@ impl TaskArgs {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    // 语言在这里定一次，之后只读——命令行是短命进程，不需要也不该有可变的全局语言
+    output::set_lang(cli.lang.as_deref());
     let mut out = Emitter::new(cli.json);
     let kind = match run(&cli, &mut out) {
         Ok(k) => k,
@@ -223,8 +237,31 @@ fn run(cli: &Cli, out: &mut Emitter) -> Result<ExitKind, String> {
             confirmed,
             countdown,
         } => format::run(out, target, *confirmed, *countdown),
+        Command::Eject { target } => cmd_eject(target, out),
         Command::Report { manifest, output } => cmd_report(manifest, output.as_deref(), out),
     }
+}
+
+/// 安全弹出。命令行版没有「任务进行中」的概念（每次调用是独立进程），
+/// 所以准入判据这里传空——真正的互斥由系统的卷锁定负责：
+/// 有别的进程开着卡上的文件时，FSCTL_LOCK_VOLUME 会失败。
+fn cmd_eject(target: &str, out: &mut Emitter) -> Result<ExitKind, String> {
+    let vols = steadcopy_core::device::enumerate_volumes().map_err(|e| e.to_string())?;
+    let vol = vols
+        .into_iter()
+        .find(|v| {
+            v.guid_path.eq_ignore_ascii_case(target)
+                || v.drive_letter.as_deref().map(str::to_ascii_uppercase)
+                    == Some(target.to_ascii_uppercase())
+        })
+        .ok_or_else(|| format!("找不到这个卷：{target}"))?;
+
+    steadcopy_core::device::can_eject(&vol.composite_id(), &[]).map_err(|e| e.to_string())?;
+    steadcopy_core::device::ejector()
+        .eject(&vol.root_path())
+        .map_err(|e| e.to_string())?;
+    out.note(&format!("{} 已安全弹出，可以拔了", vol.display_name()));
+    Ok(ExitKind::Ok)
 }
 
 /// 由清单生成 HTML 报告，返回落地路径。
@@ -413,10 +450,14 @@ fn cmd_audit(
 
     let r = audit(&m, &observed, true);
     out.audit(&r);
-    // 有丢失才算失败；「新增」不构成失败
+    // 有丢失才算失败；「新增」不构成失败。
+    //
+    // 归**终态族**而不是可重试族：拷贝期的校验失败重拷一次可能就好了，
+    // 但复验是对已经落地的数据做的——同一份清单再跑一遍，答案只会一样。
+    // 把它标成「可重试」会让脚本白白重试，也会误导人以为再试试就能好。
     Ok(if r.is_data_intact() {
         ExitKind::Ok
     } else {
-        ExitKind::Retryable
+        ExitKind::Terminal
     })
 }

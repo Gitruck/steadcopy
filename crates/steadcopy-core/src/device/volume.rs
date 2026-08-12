@@ -160,9 +160,10 @@ fn same_volume(a: &Path, b: &Path) -> bool {
         let s = p.to_string_lossy().to_ascii_lowercase();
         // 取到第一个分隔符为止的前缀（盘符或 \\?\Volume{...}）
         if let Some(rest) = s.strip_prefix(r"\\?\") {
-            format!(r"\\?\{}", rest.split('\\').next().unwrap_or_default())
+            // split 至少给一段；取不到只可能是空串，显式写出来而不是靠 default
+            format!(r"\\?\{}", rest.split('\\').next().unwrap_or(""))
         } else {
-            s.split(['\\', '/']).next().unwrap_or_default().to_string()
+            s.split(['\\', '/']).next().unwrap_or("").to_string()
         }
     };
     !norm(a).is_empty() && norm(a) == norm(b)

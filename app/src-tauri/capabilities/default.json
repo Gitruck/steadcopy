@@ -1,14 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "最小权限集。刻意不含 shell 执行与宽泛 fs 权限——前身放行 powershell 任意参数，等于前端 XSS 即 RCE。",
+  "description": "最小权限集。刻意不含 shell 执行、不含宽泛 fs 权限、也不含 opener 的任意路径——前身放行 powershell 任意参数，等于前端 XSS 即 RCE。用系统程序打开文件或链接一律走后端命令（open_config_file / open_report_file / reveal_landing_dir / open_guide），路径与网址由后端自己算或先校验——前端连传一个任意 URL 的机会都没有。",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-minimize",
     "core:window:allow-start-dragging",
     "dialog:allow-open",
-    "opener:allow-open-path",
-    "opener:allow-open-url"
+    "notification:default"
   ]
 }

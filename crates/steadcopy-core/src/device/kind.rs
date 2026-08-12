@@ -23,13 +23,13 @@ pub enum DeviceKind {
 }
 
 impl DeviceKind {
-    pub const fn label(self) -> &'static str {
+    pub const fn label(self, lang: crate::i18n::Locale) -> &'static str {
         match self {
-            DeviceKind::Unclassified => "未分类",
-            DeviceKind::Camera => "摄影卡",
-            DeviceKind::Recorder => "录音卡",
-            DeviceKind::Storage => "素材盘",
-            DeviceKind::Ignored => "忽略",
+            DeviceKind::Unclassified => lang.pick("未分类", "Unclassified"),
+            DeviceKind::Camera => lang.pick("摄影卡", "Camera card"),
+            DeviceKind::Recorder => lang.pick("录音卡", "Recorder card"),
+            DeviceKind::Storage => lang.pick("素材盘", "Media drive"),
+            DeviceKind::Ignored => lang.pick("忽略", "Ignored"),
         }
     }
 
@@ -52,6 +52,7 @@ pub struct DeviceRecord {
     /// 用户自定义名。为空时用卷标
     pub custom_name: String,
     pub kind: DeviceKind,
+    #[serde(with = "crate::serde_time")]
     pub last_seen: OffsetDateTime,
     /// 重名时的区分序号（1 表示无后缀）
     pub instance: u32,
@@ -165,7 +166,7 @@ mod tests {
             DeviceKind::Storage,
             DeviceKind::Ignored,
         ] {
-            assert!(!k.label().is_ascii(), "类型名应为中文：{}", k.label());
+            assert!(!k.label(crate::i18n::Locale::Zh).is_ascii(), "类型名应为中文：{}", k.label(crate::i18n::Locale::Zh));
         }
     }
 

@@ -9,4 +9,4 @@ pub use model::{
     new_id, ArrivalMode, Config, ConfigError, DestinationConfig, Project, Settings,
     CONFIG_VERSION, DEFAULT_TEMPLATE,
 };
-pub use store::{config_dir, config_path, load, save, ConfigLoadError};
+pub use store::{config_dir, config_path, is_portable, load, portable_dir, save, ConfigLoadError};
