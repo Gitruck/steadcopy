@@ -31,6 +31,10 @@ use steadcopy_core::ledger::{
     record_run, FileRecord, HistoryQuery, Ledger, TaskRecord, TaskStatus,
 };
 use steadcopy_core::ledger::{render_report, ReportInput};
+use steadcopy_core::map::{
+    apply_refresh, diff_refresh, dispatch_assignments, DispatchSource, FolderMap, MapError,
+    MapTemplate,
+};
 use steadcopy_core::manifest::{load_manifests, read_manifest, Manifest};
 use steadcopy_core::organize::{scan_source, PathTemplate, RenderContext, ScanOptions};
 use steadcopy_core::platform::{volume_io, Clock, SystemClock};
@@ -55,7 +59,18 @@ struct AppState {
     /// **不能只存一个**：两张卡先后到达时，后一个会把前一个的令牌顶掉，
     /// 「取消」就只作用在最后那个任务上，前一个变成停不下来的任务
     cancel: Mutex<HashMap<String, CancelToken>>,
-    /// 正在跑任务的设备身份
+    /// **被任务占用**的设备身份——不只是「引擎此刻正在拷的」，排队中的也算。
+    ///
+    /// 占位发生在派发被接受那一刻，不是抢到串行闸那一刻（复核修复 F1）：
+    /// 排队几十分钟的卡若不占位，再点一次「全部开始」或在工位页对它发临时拷贝，
+    /// 就会重复起任务——大卡白拷数小时、台账双份。
+    /// 临时拷贝规划 / 插卡到达 / 弹出检查读的都是这一个集合，
+    /// 「已排队 = 占用」对它们自动成立，见 core 侧
+    /// `scenario_copy_map_queued_device_rejects_second_dispatch`。
+    ///
+    /// 这是**每任务一个名额的多重集**，不是去重集合：同一张卡连两个节点会派出
+    /// 两个任务、占两个名额（`Vec` 里出现两次），各自结束时退各自的名额
+    /// （见 `RunningSlot`）。读它做判定的地方都是 contains 语义，不受重复影响
     running: Mutex<Vec<String>>,
     /// 任务串行闸。界面只呈现一个任务，那就一次只跑一个——
     /// 并发跑两张卡而界面只显示一条进度，是在骗人
@@ -64,7 +79,21 @@ struct AppState {
     pending: Mutex<HashMap<String, PendingArrival>>,
     /// 最近一次跑完的任务上下文，供「记住这个做法」用
     last_run: Mutex<Option<SinkContext>>,
+    /// 每台设备最近一次进度快照（键 = 设备身份）。
+    ///
+    /// 事件是发完即逝的：切走 tab 再切回来，MapPanel 重挂载时错过的事件补不回来，
+    /// 画布上的运行态就丢了（复核修复 F6）。这份快照在事件发射处顺手更新，
+    /// 只服务只读命令 `running_snapshot`——不参与任何判定与写路径
+    progress: Mutex<HashMap<String, ProgressSnapshot>>,
     watching: Mutex<bool>,
+}
+
+/// 一台设备的进度快照。只用于界面重挂载时补齐运行态，不是判定依据。
+#[derive(Clone)]
+struct ProgressSnapshot {
+    percent: f64,
+    stage_code: String,
+    node_path: Option<String>,
 }
 
 struct PendingArrival {
@@ -77,6 +106,13 @@ struct PendingArrival {
     /// 待建的项目（临时拷贝且用户选了「现建一个」时非空）。
     /// **只在用户按下开始时才落盘**——规划期零副作用对临时路径同样成立
     pending_project: Option<Project>,
+    /// 节点在树里的路径（`/` 相连）。**导图派发才有**，其余入口一律 None。
+    ///
+    /// 两个用途（复核修复 F4 / F9）：
+    /// - 进度事件带上它，同一张卡连两个节点时画布才锚得准是哪根线在动；
+    /// - 它同时是「任务来自导图」的唯一判据——导图任务不发沉淀提示，
+    ///   见 [`is_map_origin`]
+    node_path: Option<String>,
 }
 
 /// 刚跑完的那次任务的上下文，供沉淀用。
@@ -225,6 +261,19 @@ struct ProgressPayload {
     bytes_per_sec: Option<u64>,
     /// 预计剩余秒数。同上，算不出来就是 null
     eta_secs: Option<u64>,
+    /// 节点在树里的路径（与 `MapNodeView.path` 同一口径）。**导图派发才有**，
+    /// 其余入口一律 null——画布按 (deviceId, node_path) 锚定同一张卡的哪根
+    /// 连线在动（复核修复 F4）；没有它的事件退回按设备匹配，旧字段全部原样
+    node_path: Option<String>,
+}
+
+/// `task-started` 的载荷。原先只发裸的设备身份串；同卡多落位时界面
+/// 分不出是哪条任务开跑了（F4），所以升格成结构体，设备身份字段原语义不变。
+#[derive(Serialize, Clone)]
+struct TaskStartedPayload {
+    device_id: String,
+    /// 同 [`ProgressPayload::node_path`]：导图派发才有
+    node_path: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -563,6 +612,7 @@ fn handle_arrival(app: &AppHandle, state: &AppState, vol: &Volume) -> Result<Arr
                     matched,
                     project_id,
                     pending_project: None,
+                    node_path: None,
                 },
             );
         }
@@ -757,6 +807,10 @@ fn plan_adhoc(state: State<'_, AppState>, input: AdhocInput) -> Result<ArrivalVi
         },
     };
 
+    // 这份快照里含**排队中**的设备（占位在派发被接受那一刻，见 AppState.running）：
+    // 导图派完、卡还在串行闸后排队时，这里对同一张卡的临时拷贝会被
+    // build_adhoc_spec 以 AlreadyRunning 拒绝——F1 的占位提前对本路径自动生效，
+    // 核在 core 的 scenario_copy_map_queued_device_rejects_second_dispatch（同一个集合、同一条判定）
     let running = state
         .running
         .lock()
@@ -775,6 +829,8 @@ fn plan_adhoc(state: State<'_, AppState>, input: AdhocInput) -> Result<ArrivalVi
             _ => steadcopy_core::engine::HashAlgorithm::Xxh64,
         }),
         eject_after: input.eject_after,
+        // 临时拷贝面板走各目的地自己的模板；模板覆盖是导图派发专用的口子
+        template_override: None,
     };
 
     let (spec, pending_project) =
@@ -841,6 +897,7 @@ fn plan_adhoc(state: State<'_, AppState>, input: AdhocInput) -> Result<ArrivalVi
                 matched: None,
                 project_id,
                 pending_project,
+                node_path: None,
             },
         );
     }
@@ -948,9 +1005,501 @@ fn sink_preset(
     Ok(cfg)
 }
 
+// ---------------------------------------------------------------- 拷贝导图
+//
+// 规范：openspec/changes/add-steadcopy-copy-map/specs/copy-map/spec.md
+//
+// 门面只做三件事：取当前项目的导图、把操作转交 core、把新配置存回去。
+// 树逻辑（名字校验 / 环检测 / 模板转换 / 刷新 diff）一行都不在这里——设计 D1：
+// 前端不持可独立演化的树状态，门面也不持，树只有 core 那一份。
+
+#[derive(Serialize)]
+struct MapAssignmentView {
+    id: String,
+    device_id: String,
+    device_name: String,
+}
+
+#[derive(Serialize)]
+struct MapNodeView {
+    id: String,
+    name: String,
+    parent: Option<String>,
+    /// 子节点顺序即画布顺序，稳定，由 core 定
+    children: Vec<String>,
+    /// 节点在树里的路径（各段以 `/` 相连），由 core 的 `path_segments` 算。
+    /// 它与派发事件里的 `node_path` 同一口径——画布拿两串比对就能锚定
+    /// 「同一张卡的哪根线在跑」，不用前端自己爬树拼路径（前端零业务逻辑）
+    path: String,
+    /// 落在这个节点上的连线。挂在节点上而不是另开一张表，
+    /// 是让画布一次遍历就能画完，不用前端自己做关联
+    assignments: Vec<MapAssignmentView>,
+}
+
+#[derive(Serialize)]
+struct MapTemplateView {
+    id: String,
+    name: String,
+}
+
+#[derive(Serialize)]
+struct MapView {
+    /// 导图长在哪个项目上。没有项目时为 null，界面据此显示「先建项目」的空态
+    project_id: Option<String>,
+    project_name: Option<String>,
+    nodes: Vec<MapNodeView>,
+    templates: Vec<MapTemplateView>,
+}
+
+fn map_view_of(cfg: &Config) -> MapView {
+    let project = cfg.effective_project();
+    let empty = FolderMap::default();
+    let map = project.and_then(|p| p.map.as_ref()).unwrap_or(&empty);
+    MapView {
+        project_id: project.map(|p| p.id.clone()),
+        project_name: project.map(|p| p.name.clone()),
+        nodes: map
+            .nodes
+            .iter()
+            .map(|n| MapNodeView {
+                id: n.id.clone(),
+                name: n.name.clone(),
+                parent: n.parent.clone(),
+                children: n.children.clone(),
+                // 配置载入时结构已过 validate，这里理应必然成功；真坏了（配置被外部
+                // 改出环）就退回节点自身的名字——只影响进度锚的显示精度，
+                // 不影响任何判定，属于已知根因的良性降级
+                path: map
+                    .path_segments(&n.id)
+                    .map(|s| s.join("/"))
+                    .unwrap_or_else(|_| n.name.clone()),
+                assignments: map
+                    .assignments
+                    .iter()
+                    .filter(|a| a.node_id == n.id)
+                    .map(|a| MapAssignmentView {
+                        id: a.id.clone(),
+                        device_id: a.device_id.clone(),
+                        device_name: a.device_name.clone(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        templates: cfg
+            .map_templates
+            .iter()
+            .map(|t| MapTemplateView {
+                id: t.id.clone(),
+                name: t.name.clone(),
+            })
+            .collect(),
+    }
+}
+
+/// 没有项目时的提示。导图长在项目上，这条是门面自己的前置检查。
+fn map_no_project(lang: Locale) -> String {
+    lang.pick(
+        "还没有项目——先去「设置 → 项目」建一个，导图长在项目上",
+        "No project yet — create one under Settings → Projects first; the map lives on a project",
+    )
+    .to_string()
+}
+
+/// 对当前项目的导图做一次修改：core 校验通过才落盘，失败不留半改状态。
+fn mutate_map<T>(
+    op: impl FnOnce(&mut FolderMap, Locale) -> Result<T, String>,
+) -> Result<MapView, String> {
+    let mut cfg = load_cfg()?;
+    let lang = lang_of(&cfg);
+    let pid = cfg
+        .effective_project()
+        .map(|p| p.id.clone())
+        .ok_or_else(|| map_no_project(lang))?;
+    let project = cfg.project_mut(&pid).ok_or_else(|| map_no_project(lang))?;
+    let map = project.map.get_or_insert_with(FolderMap::default);
+    op(map, lang)?;
+    save_cfg(&cfg)?;
+    Ok(map_view_of(&cfg))
+}
+
+#[tauri::command]
+fn map_get() -> Result<MapView, String> {
+    Ok(map_view_of(&load_cfg()?))
+}
+
+#[tauri::command]
+fn map_add_node(parent_id: Option<String>, name: String) -> Result<MapView, String> {
+    mutate_map(|m, lang| {
+        m.add_node(parent_id.as_deref(), &name)
+            .map_err(|e| e.describe(lang))
+    })
+}
+
+#[tauri::command]
+fn map_rename_node(node_id: String, name: String) -> Result<MapView, String> {
+    mutate_map(|m, lang| m.rename_node(&node_id, &name).map_err(|e| e.describe(lang)))
+}
+
+/// 删节点连带删整棵子树与其上的落位。**只动导图，绝不动磁盘**——
+/// 铁律在 core 的 `remove_node`，这里连碰文件系统的机会都没有。
+#[tauri::command]
+fn map_delete_node(node_id: String) -> Result<MapView, String> {
+    mutate_map(|m, lang| m.remove_node(&node_id).map_err(|e| e.describe(lang)))
+}
+
+#[tauri::command]
+fn map_move_node(node_id: String, new_parent_id: Option<String>) -> Result<MapView, String> {
+    mutate_map(|m, lang| {
+        m.move_node(&node_id, new_parent_id.as_deref())
+            .map_err(|e| e.describe(lang))
+    })
+}
+
+#[tauri::command]
+fn map_assign(device_id: String, node_id: String) -> Result<MapView, String> {
+    let cfg = load_cfg()?;
+    let lang = lang_of(&cfg);
+    // 设备显示名此刻定格进落位（连线上要挂它——颜色 MUST NOT 是唯一信息载体）。
+    // 优先记忆库里用户起的名字；没进过记忆库的卷退回它此刻的卷标名
+    let name = cfg
+        .device(&device_id)
+        .map(|d| d.display_name())
+        .or_else(|| {
+            enumerate_volumes().ok().and_then(|vols| {
+                vols.iter()
+                    .find(|v| v.composite_id() == device_id)
+                    .map(|v| v.display_name())
+            })
+        })
+        .ok_or_else(|| {
+            lang.pick(
+                "找不到这个设备——它可能刚被拔出",
+                "Could not find this device — it may have just been removed",
+            )
+            .to_string()
+        })?;
+    mutate_map(|m, lang| {
+        m.add_assignment(&device_id, &name, &node_id)
+            .map_err(|e| e.describe(lang))
+    })
+}
+
+#[tauri::command]
+fn map_unassign(assignment_id: String) -> Result<MapView, String> {
+    mutate_map(|m, lang| {
+        m.remove_assignment(&assignment_id)
+            .map_err(|e| e.describe(lang))
+    })
+}
+
+#[derive(Serialize)]
+struct MapRejectionView {
+    device_name: String,
+    reason: String,
+}
+
+#[derive(Serialize)]
+struct MapDispatchView {
+    /// 真正开跑（或进队列）的任务数
+    started: usize,
+    /// 没派出去的逐条带原因。不做 all-or-nothing——
+    /// 三张卡里一张有问题，另两张没理由陪绑（core 的 DispatchPlan 语义）
+    rejected: Vec<MapRejectionView>,
+}
+
+/// 「全部开始」：把每条连线翻译成任务并逐个开跑。
+///
+/// 翻译在 core（`dispatch_assignments`，走 `build_adhoc_spec` 同一条构造路），
+/// 执行走 `execute_pending`（与插卡确认 / 无人值守完全同一条）——
+/// 下游分不出任务来自导图，这是刻意的（设计 D2）。
+#[tauri::command]
+fn map_dispatch(app: AppHandle, state: State<'_, AppState>) -> Result<MapDispatchView, String> {
+    let cfg = load_cfg()?;
+    let lang = lang_of(&cfg);
+    let project = cfg.effective_project().ok_or_else(|| map_no_project(lang))?;
+    let pid = project.id.clone();
+    let map = project.map.clone().unwrap_or_else(FolderMap::default);
+    if map.assignments.is_empty() {
+        return Err(lang
+            .pick(
+                "导图上还没有连线——把设备拖到节点上建立落位，才有可派发的任务",
+                "There are no lines on the map yet — drag a device onto a node first",
+            )
+            .to_string());
+    }
+
+    // 源卷位置由壳层从枚举拿——core 刻意不碰设备枚举（DispatchSource 的分工）
+    let vols = enumerate_volumes().map_err(|e| e.to_string())?;
+    let sources: Vec<DispatchSource> = vols
+        .iter()
+        .filter(|v| v.can_be_source(&[]))
+        .map(|v| DispatchSource {
+            device_id: v.composite_id(),
+            source_root: v.root_path(),
+        })
+        .collect();
+    let running = state
+        .running
+        .lock()
+        .map(|r| r.clone())
+        .map_err(|_| "任务状态锁异常")?;
+
+    let plan = dispatch_assignments(&cfg, &map, &pid, &sources, &running, SystemClock.now());
+    let mut rejected: Vec<MapRejectionView> = plan
+        .rejected
+        .iter()
+        .map(|r| MapRejectionView {
+            device_name: r.device_name.clone(),
+            reason: r.reason.describe(lang),
+        })
+        .collect();
+
+    let io = volume_io();
+    let mut started = 0usize;
+    // 本批已为每台设备占下的名额数（同卡多落位时 > 1），锁内判重复派发要用
+    let mut batch_occupied: HashMap<String, usize> = HashMap::new();
+    for d in plan.ready {
+        // 规划（扫源、算增量、算空间）与临时拷贝同一个函数；
+        // 规划期零副作用，不建目录不写文件
+        let task_plan = match plan_task(&d.spec, io.as_ref()) {
+            Ok(p) => p,
+            Err(e) => {
+                rejected.push(MapRejectionView {
+                    device_name: d.device_name.clone(),
+                    reason: e.describe(lang),
+                });
+                continue;
+            }
+        };
+        // 没东西可拷 / 空间不足的落位如实说明，不占队列。
+        // 「没有新素材」不是错误，但也不是任务——起一个空任务只会制造困惑
+        let skip_reason = if task_plan.is_no_source() {
+            Some(lang.pick("这张卡上没有可拷贝的素材", "There is nothing to copy on this card"))
+        } else if task_plan.is_no_new_source() {
+            Some(lang.pick(
+                "没有新素材，此前已拷并校验通过",
+                "No new footage — everything was already copied and verified",
+            ))
+        } else if task_plan.insufficient().next().is_some() {
+            Some(lang.pick("目的地空间不足", "Not enough space at the destination"))
+        } else {
+            None
+        };
+        if let Some(reason) = skip_reason {
+            rejected.push(MapRejectionView {
+                device_name: d.device_name.clone(),
+                reason: reason.to_string(),
+            });
+            continue;
+        }
+
+        let device_id = d.spec.source.id.clone();
+        // 占位提前到**派发被接受的这一刻**（复核修复 F1）：任务可能在串行闸后
+        // 排队几十分钟，不立刻占位的话，这段时间里它对「全部开始」与临时拷贝
+        // 都不可见，会被重复派发。
+        //
+        // 占用表是**每任务一个名额**（多重集）：同一张卡连两个节点，本批就占两个名额
+        // ——这是既定功能，不许被占位误杀。所以锁内的判据不是「设备在不在表里」，
+        // 而是「表里这台设备的名额是否都由本批占下」：多出来的名额只可能来自
+        // 早先批次、并发的另一次「全部开始」或工位任务，那才是要拒的重复派发。
+        // 结束/失败时的名额释放由 execute_pending 的 RunningSlot 兜底
+        {
+            let mut r = match state.running.lock() {
+                Ok(r) => r,
+                // 锁中毒不能退化成「没占用」——那正是重复派发的口子，硬失败
+                Err(_) => return Err("任务状态锁异常，为安全起见本次不派发".into()),
+            };
+            let mine = batch_occupied.get(&device_id).copied().unwrap_or(0);
+            let total = r.iter().filter(|x| *x == &device_id).count();
+            if total > mine {
+                rejected.push(MapRejectionView {
+                    device_name: d.device_name.clone(),
+                    reason: MapError::Dispatch {
+                        reason: steadcopy_core::task::AdhocError::AlreadyRunning {
+                            device_name: d.device_name.clone(),
+                        },
+                    }
+                    .describe(lang),
+                });
+                continue;
+            }
+            r.push(device_id.clone());
+            *batch_occupied.entry(device_id.clone()).or_insert(0) += 1;
+        }
+
+        let pending = PendingArrival {
+            spec: d.spec,
+            plan: task_plan,
+            matched: None,
+            project_id: Some(pid.clone()),
+            pending_project: None,
+            node_path: Some(d.node_path),
+        };
+        let handle = app.clone();
+        // 每条任务一个线程，在 execute_pending 的串行闸前排队——
+        // 队列语义与「两张卡先后插入」完全一致
+        std::thread::spawn(move || {
+            if let Err(e) = execute_pending(&handle, &device_id, pending) {
+                let _ = handle.emit("task-failed", e);
+            }
+        });
+        started += 1;
+    }
+    Ok(MapDispatchView { started, rejected })
+}
+
+/// 刷新对照的磁盘根：项目**第一个启用**的目的地。
+/// 多目的地互为镜像，拿第一个当对照面即可；没有启用目的地就没有对照面，如实拒绝。
+fn map_refresh_root(project: &Project, lang: Locale) -> Result<PathBuf, String> {
+    project
+        .enabled_destinations()
+        .next()
+        .map(|d| d.root.clone())
+        .ok_or_else(|| {
+            lang.pick(
+                "这个项目还没有启用的目的地，刷新没有对照面",
+                "This project has no enabled destination, so there is nothing to compare against",
+            )
+            .to_string()
+        })
+}
+
+#[derive(Serialize)]
+struct RefreshSkippedView {
+    path: String,
+    /// core `MapError::describe(lang)` 的成句，门面不造句
+    reason: String,
+}
+
+#[derive(Serialize)]
+struct RefreshPreviewView {
+    /// 可并入的候选（相对路径）。确认后**原样传回** `map_refresh_apply`
+    additions: Vec<String>,
+    /// 名字进不了树的目录，逐条带原因。只呈现，永远不参与合并（复核修复 F3）
+    skipped: Vec<RefreshSkippedView>,
+}
+
+/// 刷新预览：文件系统里有而导图里没有的目录清单。**只读**，一个字节都不写。
+#[tauri::command]
+fn map_refresh_preview() -> Result<RefreshPreviewView, String> {
+    let cfg = load_cfg()?;
+    let lang = lang_of(&cfg);
+    let project = cfg.effective_project().ok_or_else(|| map_no_project(lang))?;
+    let root = map_refresh_root(project, lang)?;
+    let empty = FolderMap::default();
+    let map = project.map.as_ref().unwrap_or(&empty);
+    let plan = diff_refresh(map, &root).map_err(|e| e.describe(lang))?;
+    Ok(RefreshPreviewView {
+        additions: plan.additions.iter().map(|a| a.display_path()).collect(),
+        skipped: plan
+            .skipped
+            .iter()
+            .map(|s| RefreshSkippedView {
+                path: s.display_path(),
+                reason: s.reason.describe(lang),
+            })
+            .collect(),
+    })
+}
+
+/// 用户在预览清单上确认之后才走到这里。`confirmed` 就是预览返回、用户点头的
+/// 那份相对路径清单，**原样传回**。
+///
+/// 确认到执行之间磁盘可能又变了（导图派发自己就会在目的地建目录），所以以
+/// 执行这一刻的 diff 为准重算一次，但**只并入「重算结果 ∩ 确认集」**（复核修复 F2）：
+/// 用户确认了 N 条，落进去的就只能是那 N 条的子集——重算冒出的新条目没被
+/// 任何人看过，并进去等于替用户做了决定，留给下一次刷新。
+/// 交集裁剪在 core（`RefreshPlan::confirmed_only`），合并仍是原子的：
+/// 任何一条不合法就整批不动。
+#[tauri::command]
+fn map_refresh_apply(confirmed: Vec<String>) -> Result<MapView, String> {
+    let mut cfg = load_cfg()?;
+    let lang = lang_of(&cfg);
+    let pid = cfg
+        .effective_project()
+        .map(|p| p.id.clone())
+        .ok_or_else(|| map_no_project(lang))?;
+    let project = cfg.project_mut(&pid).ok_or_else(|| map_no_project(lang))?;
+    let root = map_refresh_root(project, lang)?;
+    let map = project.map.get_or_insert_with(FolderMap::default);
+    let plan = diff_refresh(map, &root)
+        .map_err(|e| e.describe(lang))?
+        .confirmed_only(&confirmed);
+    apply_refresh(map, &plan).map_err(|e| e.describe(lang))?;
+    save_cfg(&cfg)?;
+    Ok(map_view_of(&cfg))
+}
+
+#[tauri::command]
+fn map_template_save(name: String) -> Result<MapView, String> {
+    let mut cfg = load_cfg()?;
+    let lang = lang_of(&cfg);
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(lang.pick("模板名不能是空的", "A template name cannot be empty").to_string());
+    }
+    // 同名模板拒绝：下拉里两个同名条目没法区分，谁被套用全凭运气
+    if cfg.map_templates.iter().any(|t| t.name == name) {
+        return Err(lang
+            .pick("已有同名模板，换个名字", "A template with this name already exists — pick another")
+            .to_string());
+    }
+    let project = cfg.effective_project().ok_or_else(|| map_no_project(lang))?;
+    let map = project
+        .map
+        .as_ref()
+        .filter(|m| !m.nodes.is_empty())
+        // 空树存成模板没有意义，复用 core 对空导图的那句话
+        .ok_or_else(|| MapError::EmptyMap.describe(lang))?;
+    cfg.map_templates.push(MapTemplate::from_map(name, map));
+    save_cfg(&cfg)?;
+    Ok(map_view_of(&cfg))
+}
+
+/// 套用模板：当前画布被整棵替换（含清掉连线）。破坏性确认在界面上先做过；
+/// 套出来的树 id 全新（core 保证），模板与实例不可能被误认成同一棵。
+#[tauri::command]
+fn map_template_apply(template_id: String) -> Result<MapView, String> {
+    let mut cfg = load_cfg()?;
+    let lang = lang_of(&cfg);
+    let instance = cfg
+        .map_templates
+        .iter()
+        .find(|t| t.id == template_id)
+        .ok_or_else(|| {
+            lang.pick("配置里没有这个模板", "No such template in the configuration").to_string()
+        })?
+        .instantiate()
+        .map_err(|e| e.describe(lang))?;
+    let pid = cfg
+        .effective_project()
+        .map(|p| p.id.clone())
+        .ok_or_else(|| map_no_project(lang))?;
+    let project = cfg.project_mut(&pid).ok_or_else(|| map_no_project(lang))?;
+    project.map = Some(instance);
+    save_cfg(&cfg)?;
+    Ok(map_view_of(&cfg))
+}
+
+#[tauri::command]
+fn map_template_delete(template_id: String) -> Result<MapView, String> {
+    let mut cfg = load_cfg()?;
+    let lang = lang_of(&cfg);
+    let before = cfg.map_templates.len();
+    cfg.map_templates.retain(|t| t.id != template_id);
+    if cfg.map_templates.len() == before {
+        // 静默无事发生是最难查的一类结果，找不到就说找不到
+        return Err(lang
+            .pick("配置里没有这个模板", "No such template in the configuration")
+            .to_string());
+    }
+    save_cfg(&cfg)?;
+    Ok(map_view_of(&cfg))
+}
+
 // ---------------------------------------------------------------- 执行
 
-/// 真正跑一次任务。**阻塞**，可以从任何线程调用。
+/// 真正跑一次任务：消费 pending 表里等确认的那份计划。**阻塞**，可以从任何线程调用。
 ///
 /// 确认路径（用户点了「开始拷贝」）与无人值守路径（危险区里关了确认）共用它，
 /// 两条路径的行为因此不可能漂移。
@@ -961,22 +1510,141 @@ fn execute_run(app: &AppHandle, device_id: &str) -> Result<RunView, String> {
         p.remove(device_id)
             .ok_or("这次到达的计划已失效，请重新插卡或手动发起")?
     };
+    execute_pending(app, device_id, pending)
+}
 
+/// 一个任务在占用表里的名额，Drop 时**退掉恰好一个**。
+///
+/// 用 RAII 而不是在函数末尾手动清：`execute_pending` 有好几条提前返回的路
+/// （任务闸中毒、拷贝线程 join 失败），漏掉任何一条，设备就**永久被占**——
+/// 之后它的每次到达都被 AlreadyRunning 拒绝，只能重启程序。失败路径也必须释放，
+/// 靠 Drop 是唯一不用人记的写法（复核修复 F1）。
+///
+/// 占用表是每任务一个名额的多重集（同一张卡连两个节点 = 两个名额），
+/// 所以释放用「摘一个」而不是 retain 全删——全删会把同设备**另一个任务**的名额
+/// 也顺手退掉，那个任务还在排队，设备却已对外显示空闲。
+struct RunningSlot {
+    app: AppHandle,
+    device_id: String,
+}
+
+impl RunningSlot {
+    /// 占一个名额。导图派发在「派发被接受那一刻」已为**这条任务**占过
+    /// （见 `map_dispatch`，`pre_occupied = true`），这里不重复占；
+    /// 确认 / 无人值守路径此前没占过，进函数（含排队等闸）即占。
+    fn occupy(app: &AppHandle, device_id: &str, pre_occupied: bool) -> Self {
+        if !pre_occupied {
+            let state = app.state::<AppState>();
+            if let Ok(mut r) = state.running.lock() {
+                r.push(device_id.to_string());
+            };
+        }
+        Self {
+            app: app.clone(),
+            device_id: device_id.to_string(),
+        }
+    }
+}
+
+impl Drop for RunningSlot {
+    fn drop(&mut self) {
+        let state = self.app.state::<AppState>();
+        if let Ok(mut r) = state.running.lock() {
+            if let Some(i) = r.iter().position(|d| d == &self.device_id) {
+                r.remove(i);
+            }
+        };
+    }
+}
+
+/// 「正在跑」区段（串行闸内）的设备键状态清理：取消令牌 + 进度快照。
+///
+/// 与 [`RunningSlot`] 分开、且**声明在闸守卫之后**是刻意的——Drop 逆序保证
+/// 这里先清、闸后放：cancel/progress 按设备做键，若在放闸之后才清，
+/// 下一个同设备的排队任务可能已抢到闸、插入了自己的令牌与快照，
+/// 迟到的清理会把**别人的**状态删掉。
+struct TaskScopeCleanup {
+    app: AppHandle,
+    device_id: String,
+}
+
+impl Drop for TaskScopeCleanup {
+    fn drop(&mut self) {
+        let state = self.app.state::<AppState>();
+        if let Ok(mut c) = state.cancel.lock() {
+            c.remove(&self.device_id);
+        };
+        if let Ok(mut p) = state.progress.lock() {
+            p.remove(&self.device_id);
+        };
+    }
+}
+
+/// 这次任务是不是导图派发来的。判据就是有没有节点锚：导图任务带 `node_path`，
+/// 其余入口一律 None（见 [`PendingArrival::node_path`]），不另设旗标——两个字段
+/// 迟早对不上。
+///
+/// 导图任务不发沉淀提示（复核修复 F9）：沉淀的语义是「把这次的做法记成预设，
+/// 下次插卡自动来」，而导图本身已经是显式编排——每张卡落到哪个节点都画在画布上，
+/// 沉出来的预设记的是项目字符串模板，复现不了节点落位，等于承诺了一个做不到的「下次」。
+/// 注意这不违反设计 D2（下游不可区分）：D2 约束的是队列 / 引擎 / 台账 / 报告，
+/// 沉淀提示是派发编排层自己的事。
+const fn is_map_origin(node_path: Option<&str>) -> bool {
+    node_path.is_some()
+}
+
+/// 拿着已备好的规格与规划直接跑。
+///
+/// 导图派发**不经过 pending 表**走这里进来：那张表按设备身份做键，
+/// 而导图上一张卡可以连多个节点、一次派出多个任务，同键互踩会丢任务。
+/// 进了这个函数之后三条路径（确认 / 无人值守 / 导图）就完全是同一条——
+/// 串行闸、进度事件、报告、台账全都共用，行为不可能漂移。
+fn execute_pending(
+    app: &AppHandle,
+    device_id: &str,
+    pending: PendingArrival,
+) -> Result<RunView, String> {
+    let state = app.state::<AppState>();
+    let node_path = pending.node_path.clone();
+    // 占名额必须在等串行闸**之前**：排队中的任务同样占着设备，
+    // 否则排队期间它对「全部开始」与临时拷贝不可见，会被重复派发（F1）。
+    // 导图任务（带 node_path）在派发被接受那一刻已由 map_dispatch 占过，这里不重复占
+    let _slot = RunningSlot::occupy(app, device_id, is_map_origin(node_path.as_deref()));
     // 串行闸：前一个任务没跑完就在这里排队
     let queued = state.run_lock.try_lock().is_err();
     if queued {
         let _ = app.emit("task-notice", "已有任务在跑，这张卡排在后面".to_string());
     }
     let _guard = state.run_lock.lock().map_err(|_| "任务闸异常")?;
+    // 声明在 _guard 之后：Drop 逆序 ⇒ 先清设备键状态、再放闸、最后 _slot 退名额
+    let _scope = TaskScopeCleanup {
+        app: app.clone(),
+        device_id: device_id.to_string(),
+    };
 
     let cancel = CancelToken::new();
-    if let Ok(mut slot) = state.cancel.lock() {
-        slot.insert(device_id.to_string(), cancel.clone());
+    if let Ok(mut c) = state.cancel.lock() {
+        c.insert(device_id.to_string(), cancel.clone());
     }
-    if let Ok(mut r) = state.running.lock() {
-        r.push(device_id.to_string());
+    let _ = app.emit(
+        "task-started",
+        TaskStartedPayload {
+            device_id: device_id.to_string(),
+            node_path: node_path.clone(),
+        },
+    );
+    // 进度快照从任务一开跑就有：stage_code 为空串如实表示「还没进任何阶段」，
+    // 不造一个假代码（F6）
+    if let Ok(mut p) = state.progress.lock() {
+        p.insert(
+            device_id.to_string(),
+            ProgressSnapshot {
+                percent: 0.0,
+                stage_code: String::new(),
+                node_path: node_path.clone(),
+            },
+        );
     }
-    let _ = app.emit("task-started", device_id.to_string());
 
 
     // 待建项目在**用户按下开始的这一刻**才落盘。规划期零副作用是刻意的：
@@ -1000,17 +1668,21 @@ fn execute_run(app: &AppHandle, device_id: &str) -> Result<RunView, String> {
 
     // 沉淀提示：任务一开跑就挂上，**不是弹窗**。
     // 判定在 core——「这次的做法和已记住的不一样」才提示，一致就闭嘴。
-    // 上下文单独留一份：任务结束后提示仍要能点（有人拷完就去拔卡了）
-    let suggestion = should_suggest(&spec, pending.matched.as_ref(), project_id.as_deref());
-    if let Ok(mut slot) = state.last_run.lock() {
-        *slot = Some(SinkContext {
-            spec: spec.clone(),
-            device_id: device_id.to_string(),
-            project_id: project_id.clone(),
-        });
-    }
-    if suggestion.should_show() {
-        let _ = app.emit("sink-suggested", sink_view(&suggestion, &spec, device_id)?);
+    // 上下文单独留一份：任务结束后提示仍要能点（有人拷完就去拔卡了）。
+    // 导图派发整段跳过（复核修复 F9，理由见 is_map_origin）——连 last_run 也不覆盖：
+    // 上一次临时拷贝留在屏幕上的提示条还能点，覆盖了它，点下去沉的就是导图任务的参数
+    if !is_map_origin(node_path.as_deref()) {
+        let suggestion = should_suggest(&spec, pending.matched.as_ref(), project_id.as_deref());
+        if let Ok(mut slot) = state.last_run.lock() {
+            *slot = Some(SinkContext {
+                spec: spec.clone(),
+                device_id: device_id.to_string(),
+                project_id: project_id.clone(),
+            });
+        }
+        if suggestion.should_show() {
+            let _ = app.emit("sink-suggested", sink_view(&suggestion, &spec, device_id)?);
+        }
     }
     // 拷完判定「能不能提议格式化」要用到的事实，在 spec/plan 被搬进线程之前取出来
     let verify = spec.verify;
@@ -1018,6 +1690,10 @@ fn execute_run(app: &AppHandle, device_id: &str) -> Result<RunView, String> {
     let source_root = spec.source_root.clone();
     let eject_after = spec.eject_after;
     let device_id_owned = device_id.to_string();
+    // 线程里发事件与更新进度快照要用的两份副本——device_id_owned 在 join 之后还要用，
+    // 不能搬进闭包
+    let device_for_events = device_id.to_string();
+    let node_path_for_events = node_path.clone();
     let handle = app.clone();
 
     // 阻塞式 IO 放独立线程，不占 Tauri 的异步运行时
@@ -1030,8 +1706,26 @@ fn execute_run(app: &AppHandle, device_id: &str) -> Result<RunView, String> {
         let mut last_done: u64 = 0;
         let lang = lang();
 
+        // 进度快照在发事件处顺手更新（F6）：只写缓存供 running_snapshot 读，
+        // 不参与任何判定——事件仍是运行态的唯一驱动，快照只救「重挂载错过了事件」
+        let update_snapshot = |percent: f64, stage_code: &str| {
+            if let Some(s) = handle.try_state::<AppState>() {
+                if let Ok(mut p) = s.progress.lock() {
+                    p.insert(
+                        device_for_events.clone(),
+                        ProgressSnapshot {
+                            percent,
+                            stage_code: stage_code.to_string(),
+                            node_path: node_path_for_events.clone(),
+                        },
+                    );
+                }
+            }
+        };
+
         let report = run_task(&spec, &plan, io.as_ref(), &clock, &cancel, &mut |e| match e {
             StageEvent::Stage(s) => {
+                update_snapshot(0.0, s.code());
                 let _ = handle.emit(
                     "task-stage",
                     ProgressPayload {
@@ -1041,6 +1735,7 @@ fn execute_run(app: &AppHandle, device_id: &str) -> Result<RunView, String> {
                         current: None,
                         bytes_per_sec: None,
                         eta_secs: None,
+                        node_path: node_path_for_events.clone(),
                     },
                 );
             }
@@ -1066,15 +1761,18 @@ fn execute_run(app: &AppHandle, device_id: &str) -> Result<RunView, String> {
                     (None, None)
                 };
                 last_done = done;
+                let pct = steadcopy_core::task::stage::percent(done, total);
+                update_snapshot(pct, stage.code());
                 let _ = handle.emit(
                     "task-progress",
                     ProgressPayload {
                         stage_code: stage.code().to_string(),
                         stage: stage.label(lang).to_string(),
-                        percent: steadcopy_core::task::stage::percent(done, total),
+                        percent: pct,
                         current,
                         bytes_per_sec: bps,
                         eta_secs: eta,
+                        node_path: node_path_for_events.clone(),
                     },
                 );
             }
@@ -1155,13 +1853,10 @@ fn execute_run(app: &AppHandle, device_id: &str) -> Result<RunView, String> {
     })
     .join()
     .map_err(|_| "拷贝线程异常终止".to_string())?;
+    // 名额 / 取消令牌 / 进度快照的清理不在这里手写——TaskScopeCleanup 与 RunningSlot
+    // 的 Drop 统一兜，上面 join 失败的提前返回也一并覆盖
+    // （F1：失败路径不释放 = 设备永久被占）
 
-    if let Ok(mut r) = state.running.lock() {
-        r.retain(|d| d != device_id);
-    }
-    if let Ok(mut slot) = state.cancel.lock() {
-        slot.remove(device_id);
-    }
     match &result {
         Ok(v) => {
             let _ = app.emit("task-finished", v);
@@ -1294,6 +1989,31 @@ fn eject_device(app: AppHandle, device_root: String) -> Result<(), String> {
         .find(|v| v.root_path().display().to_string() == device_root)
         .ok_or_else(|| format!("找不到这个卷：{device_root}"))?;
     eject_volume(&app, &vol.composite_id(), &vol.root_path())
+}
+
+#[derive(Serialize)]
+struct RunningTaskView {
+    device_id: String,
+    percent: f64,
+    stage_code: String,
+    /// 导图任务才有：进度锚（见 `ProgressPayload::node_path`）
+    node_path: Option<String>,
+}
+
+/// 正在跑的任务的进度快照。**只读**——它不驱动任何判定，只救一种场景（F6）：
+/// 切走 tab 再切回来，面板重挂载时错过的事件补不回来，先取这份快照垫底、
+/// 再接事件流。排队中（占位了但还没开跑）的任务没有快照，不在返回里。
+#[tauri::command]
+fn running_snapshot(state: State<'_, AppState>) -> Result<Vec<RunningTaskView>, String> {
+    let p = state.progress.lock().map_err(|_| "状态锁异常")?;
+    Ok(p.iter()
+        .map(|(id, s)| RunningTaskView {
+            device_id: id.clone(),
+            percent: s.percent,
+            stage_code: s.stage_code.clone(),
+            node_path: s.node_path.clone(),
+        })
+        .collect())
 }
 
 /// 暂停 / 继续当前任务。
@@ -2021,6 +2741,20 @@ pub fn run() {
             adhoc_prefill,
             plan_adhoc,
             sink_preset,
+            map_get,
+            map_add_node,
+            map_rename_node,
+            map_delete_node,
+            map_move_node,
+            map_assign,
+            map_unassign,
+            map_dispatch,
+            map_refresh_preview,
+            map_refresh_apply,
+            running_snapshot,
+            map_template_save,
+            map_template_apply,
+            map_template_delete,
             list_history,
             task_files,
             clear_history,
@@ -2043,4 +2777,18 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("启动应用失败");
+}
+
+/// F9 判据的护栏测试。执行路径（`execute_pending`）挂在 AppHandle 上起不了单测，
+/// 所以把「导图任务不发沉淀提示」的判定收成纯函数 `is_map_origin` 钉在这里——
+/// 有人改了判据（比如给导图任务也发提示、或换了判定字段），这条会先红。
+#[cfg(test)]
+mod sink_gate {
+    #[test]
+    fn map_origin_tasks_never_emit_sink_suggestion() {
+        // 带节点锚 = 导图派发 ⇒ 跳过 sink-suggested（沉出的预设复现不了节点落位）
+        assert!(super::is_map_origin(Some("素材/{日期}/{设备}")));
+        // 没有锚 = 确认 / 无人值守 / 临时拷贝 ⇒ 照旧走 should_suggest 判定
+        assert!(!super::is_map_origin(None));
+    }
 }

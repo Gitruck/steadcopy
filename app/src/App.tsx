@@ -27,6 +27,7 @@ import {
   type UpdateInfo,
 } from "./bridge";
 import { AdhocPanel, SinkBar } from "./adhoc";
+import { MapPanel } from "./mapview";
 import { resolveLang, setLang, t } from "./i18n";
 import {
   AuditPanel,
@@ -39,13 +40,14 @@ import {
   TwoBars,
 } from "./components";
 
-type Tab = "workbench" | "presets" | "devices" | "history" | "settings";
+type Tab = "workbench" | "presets" | "map" | "devices" | "history" | "settings";
 
-const TABS: Tab[] = ["workbench", "presets", "devices", "history", "settings"];
+const TABS: Tab[] = ["workbench", "presets", "map", "devices", "history", "settings"];
 
 const TAB_KEY = {
   workbench: "nav.workbench",
   presets: "nav.presets",
+  map: "nav.map",
   devices: "nav.devices",
   history: "nav.history",
   settings: "nav.settings",
@@ -121,6 +123,8 @@ export default function App() {
             <Workbench cfg={cfg} reload={reload} onView={setViewing} onError={setError} />
           ) : tab === "presets" ? (
             <Presets cfg={cfg} reload={reload} onError={setError} />
+          ) : tab === "map" ? (
+            <MapPanel onError={setError} />
           ) : tab === "devices" ? (
             <Devices cfg={cfg} reload={reload} onError={setError} />
           ) : tab === "history" ? (

@@ -251,6 +251,8 @@ export type Progress = {
   /** 算不出来时是 null——不拿 0 冒充 */
   bytes_per_sec: number | null;
   eta_secs: number | null;
+  /** 导图派发才有（与 MapNode.path 同一口径）；其余入口为 null，按设备匹配即可 */
+  node_path: string | null;
 };
 
 export type UpdateInfo = {
@@ -285,6 +287,63 @@ export type ScanView = {
   junk_excluded: number;
   fingerprints: string[];
   categories: [string, number, number][];
+};
+
+/** 导图上的一条「设备 → 节点」落位（画布上的一根连线）。 */
+export type MapAssignment = {
+  id: string;
+  device_id: string;
+  /** 连线上挂的名字——颜色 MUST NOT 是唯一信息载体 */
+  device_name: string;
+};
+
+export type MapNode = {
+  id: string;
+  name: string;
+  parent: string | null;
+  /** 子节点顺序即画布顺序，稳定，由 core 定 */
+  children: string[];
+  /**
+   * 节点在树里的路径（各段以 `/` 相连），core 算好下发。
+   * 与进度事件里的 `node_path` 同一口径——画布拿两串比对就能锚定
+   * 同一张卡的哪根连线在跑，不在前端爬树拼路径
+   */
+  path: string;
+  assignments: MapAssignment[];
+};
+
+export type MapView = {
+  /** 导图长在哪个项目上。null = 还没有项目，界面显示空态引导 */
+  project_id: string | null;
+  project_name: string | null;
+  nodes: MapNode[];
+  templates: { id: string; name: string }[];
+};
+
+export type MapDispatchResult = {
+  started: number;
+  /** 没派出去的逐条带原因——不做 all-or-nothing */
+  rejected: { device_name: string; reason: string }[];
+};
+
+/** 刷新预览：可并入的候选 + 名字进不了树、只呈现不合并的目录（原因是 core 成句） */
+export type MapRefreshPreview = {
+  additions: string[];
+  skipped: { path: string; reason: string }[];
+};
+
+/** `task-started` 的载荷。node_path 只有导图派发才有，其余入口为 null */
+export type TaskStarted = {
+  device_id: string;
+  node_path: string | null;
+};
+
+/** 正在跑任务的进度快照，面板重挂载时垫底用；排队中（尚未开跑）的不在里面 */
+export type RunningTask = {
+  device_id: string;
+  percent: number;
+  stage_code: string;
+  node_path: string | null;
 };
 
 export const api = {
@@ -326,6 +385,36 @@ export const api = {
   /** 把刚跑完那次的做法记成预设。一次点击完成，不跳编辑器 */
   sinkPreset: (scope: SinkScope, kind?: DeviceKind, name?: string) =>
     invoke<Config>("sink_preset", { scope, kind, name }),
+
+  // 导图：树与落位全在 core，这里只发命令。
+  // 派发复用临时拷贝的执行路径——下游分不出任务来自导图（设计 D2）
+  mapGet: () => invoke<MapView>("map_get"),
+  mapAddNode: (parentId: string | null, name: string) =>
+    invoke<MapView>("map_add_node", { parentId, name }),
+  mapRenameNode: (nodeId: string, name: string) =>
+    invoke<MapView>("map_rename_node", { nodeId, name }),
+  mapDeleteNode: (nodeId: string) => invoke<MapView>("map_delete_node", { nodeId }),
+  mapMoveNode: (nodeId: string, newParentId: string | null) =>
+    invoke<MapView>("map_move_node", { nodeId, newParentId }),
+  mapAssign: (deviceId: string, nodeId: string) =>
+    invoke<MapView>("map_assign", { deviceId, nodeId }),
+  mapUnassign: (assignmentId: string) => invoke<MapView>("map_unassign", { assignmentId }),
+  mapDispatch: () => invoke<MapDispatchResult>("map_dispatch"),
+  /** 刷新预览：候选 + 无法并入清单。只读，不动磁盘 */
+  mapRefreshPreview: () => invoke<MapRefreshPreview>("map_refresh_preview"),
+  /**
+   * 确认后并入。`confirmed` 就是预览返回、用户点头的那份 additions **原样传回**——
+   * 落地只并「重算 diff ∩ 确认集」，预览之后磁盘上新冒出来的目录不会被顺手收编
+   */
+  mapRefreshApply: (confirmed: string[]) =>
+    invoke<MapView>("map_refresh_apply", { confirmed }),
+  /** 进行中任务的进度快照。只读；面板挂载时先垫底，再接事件流 */
+  runningSnapshot: () => invoke<RunningTask[]>("running_snapshot"),
+  mapTemplateSave: (name: string) => invoke<MapView>("map_template_save", { name }),
+  mapTemplateApply: (templateId: string) =>
+    invoke<MapView>("map_template_apply", { templateId }),
+  mapTemplateDelete: (templateId: string) =>
+    invoke<MapView>("map_template_delete", { templateId }),
 
   // 台账
   listHistory: (onlyFailed = false, limit?: number) =>
@@ -369,8 +458,8 @@ export const events = {
     listen<{ path: string; reason: string }>("task-file-failed", (e) => cb(e.payload)),
   onNotice: (cb: (m: string) => void) => listen<string>("task-notice", (e) => cb(e.payload)),
   onWatchError: (cb: (m: string) => void) => listen<string>("watch-error", (e) => cb(e.payload)),
-  onTaskStarted: (cb: (deviceId: string) => void) =>
-    listen<string>("task-started", (e) => cb(e.payload)),
+  onTaskStarted: (cb: (p: TaskStarted) => void) =>
+    listen<TaskStarted>("task-started", (e) => cb(e.payload)),
   onTaskFinished: (cb: (r: RunView) => void) => listen<RunView>("task-finished", (e) => cb(e.payload)),
   onTaskFailed: (cb: (m: string) => void) => listen<string>("task-failed", (e) => cb(e.payload)),
   /** 拷完全绿且危险区开了「拷完自动格式化」时，后端提议格式化源卡。提议 ≠ 执行。 */

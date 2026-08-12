@@ -86,6 +86,36 @@ confirm_and_run             确认后开跑
 nothing                     不用做什么（已忽略 / 已有任务在跑）
 ```
 
+### 导图
+
+「导图」把项目的目录结构画成节点图：加节点、把设备连到节点、「全部开始」。**树逻辑全在 core，门面零业务**——节点名校验（非法字符 / 保留名 / 兄弟重名 / 深度与长度上限）、环检测、模板双向转换、刷新 diff 全部在 core 里判，门面只转发命令、回传视图，界面拿到视图整棵重画。
+
+`MapView` 是导图的唯一视图出参：`nodes` 是整棵树（每个节点带自己的落位 `assignments`），`templates` 是模板清单（`[{id, name}]`）。导图命令一律返回**整份 `MapView`** 而不是差量——理由同配置类命令：界面不必自己合并状态，也就不会出现「画布上看着合法、落盘时才报错」。
+
+| 命令 | 入参 | 出参 | 说明 |
+|---|---|---|---|
+| `map_get` | — | `MapView` | 当前项目的树与模板清单 |
+| `map_add_node` | `parentId`, `name` | `MapView` | `parentId` 为 `null` = 挂根下。校验失败当场拒绝，树保持原状 |
+| `map_rename_node` | `nodeId`, `name` | `MapView` | 校验同上。节点名允许 `{占位符}`——与字符串模板同一套词表，派发时才渲染 |
+| `map_delete_node` | `nodeId` | `MapView` | 连带子树与其上落位。**只动导图，绝不删磁盘目录** |
+| `map_move_node` | `nodeId`, `newParentId` | `MapView` | 拖拽换父；`newParentId` 为 `null` = 提到顶层。不许挂到自己或自己的后代下（环检测在 core） |
+| `map_assign` | `deviceId`, `nodeId` | `MapView` | 拖一根连线。一张卡可连多个节点、一个节点可收多张卡；**完全相同的设备-节点对拒绝重复**——那只会派出两份一样的任务 |
+| `map_unassign` | `assignmentId` | `MapView` | 摘一根连线 |
+| `map_dispatch` | — | `{started, rejected[]}` | 起了几个任务 + 没派出去的逐条带原因（`{device_name, reason}`）。**派发走 adhoc 同路，下游不可区分**，详见下文。派发被接受的那一刻设备即被记入占用——排队中的卡再点「全部开始」或发临时拷贝都会被拒，不会重复起任务 |
+| `map_refresh_preview` | — | `{additions[], skipped[]}` | `additions` 是可并入的相对路径候选；`skipped` 是名字进不了树的目录（`{path, reason}`，原因 core 成句），只呈现、永不合并——一条坏名不堵死整批刷新。**只读**，一个字节都不写 |
+| `map_refresh_apply` | `confirmed` | `MapView` | 确认后并入。`confirmed` 就是预览返回、用户点头的那份 `additions` **原样传回**；落地只并「重算 diff ∩ 确认集」——预览之后磁盘新冒出的目录不会被顺手收编。只增不删；合并对确认集仍是原子的 |
+| `map_template_save` | `name` | `MapView` | 树存成模板。落位被剥掉——落位是工位现场的事，换个项目、换一天，卡都不是同一批 |
+| `map_template_apply` | `templateId` | `MapView` | 套用到当前项目 |
+| `map_template_delete` | `templateId` | `MapView` | |
+
+错误一律 `Result<_, String>`，串来自 core 的 `describe(lang)`（`lang` 取配置的语言设置）——门面不造句，界面与命令行不会漂出两套说法。
+
+`map_dispatch` 走 `build_adhoc_spec` 同一条构造路径：目标路径 = 项目目的地根 + 节点在树里的路径（占位符此刻才渲染，复用 organize-rules 的 `PathTemplate`）。**下游——队列、引擎、清单、台账、报告——分不出任务来自导图还是预设还是临时拷贝**，这是刻意的：分得出来，迟早有人为「导图任务」写捷径，而捷径总是从跳过校验开始。「校验不可跳过」（连「跟随全局默认」都不给）、「正在跑的设备拒绝重复起任务」「整卡镜像不偷偷过滤」这些不变量因此自动继承，一条不用重写。派发不做 all-or-nothing：三张卡里一张在跑，另两张没理由陪绑——能走的照走，被拒的逐条带原因呈现。
+
+导图**不新增事件**：派发出去的就是普通任务，进度与结束走既有的 `task-*` 事件族，画布上沿连线显示的进度消费的也是同一份负载。`task-started` 与进度负载带可选的 `node_path`（**导图来源才有**，其余入口为 `null`）——同一张卡连两个节点时，画布按 `(device_id, node_path)` 锚定是哪根线在跑；没有 `node_path` 的事件退回按设备匹配。`MapView` 里每个节点带 `path`（core 算好的树内路径，与 `node_path` 同一口径），前端不自己爬树拼路径。
+
+另有一条只读命令 `running_snapshot`（— → `[{device_id, percent, stage_code, node_path?}]`）：进行中任务的进度快照。事件发完即逝，切走 tab 再切回来的面板重挂载补不回错过的事件，挂载时先取这份快照垫底、再接事件流。它不驱动任何判定，排队中（尚未开跑）的任务不在其中。
+
 ### 台账
 
 | 命令 | 入参 | 出参 |

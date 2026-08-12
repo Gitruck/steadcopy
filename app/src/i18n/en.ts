@@ -348,4 +348,54 @@ export const en: Record<Key, string> = {
   "update.install": "Download and install",
   "update.installing": "Downloading…",
   "update.willRestart": "The app restarts after installing. Nothing installs unless you say so.",
+
+  "nav.map": "Map",
+  "map.needProject":
+    "No project yet — create one under Settings → Projects first; the map lives on a project.",
+  "map.emptyTitle": "Draw your folder structure",
+  "map.emptyWhat":
+    "The map draws your target folders as a tree: every node is a folder that will be created. Drag a device from the left onto a node to make a connection, then \"Start all\" copies and verifies along each line — same queue, receipts and ledger as every other entry point.",
+  "map.emptyHow":
+    "Node names accept the same {项目}{日期}{设备} placeholders as path templates; they render into real folder names at dispatch time.",
+  "map.addFirst": "Add the first node",
+  "map.addNode": "Add node",
+  "map.toTop": "Move to top level",
+  "map.center": "Center",
+  "map.hintKeys":
+    "Double-click/F2 rename · Tab add child · Delete remove · drag node to re-parent · click a device name on a line to disconnect it · wheel zoom · drag blank space to pan",
+  "map.newNamePlaceholder": "Folder name; placeholders like {项目}{日期}{设备} are allowed",
+  "map.deleteConfirm":
+    "Delete \"{name}\" and its whole subtree? Only the map changes — folders on disk are untouched.",
+  "map.unassignConfirm": "Remove the \"{device} → {node}\" connection?",
+  "map.sources": "Sources",
+  "map.sourcesHint": "Drag onto a node on the right to connect; one card can feed several nodes.",
+  "map.sourcesEmpty": "No usable source device — insert a card and it shows up here.",
+  "map.startAll": "Start all",
+  "map.startAllNone": "No connections yet, so there is nothing to dispatch",
+  "map.dispatchStarted":
+    "{n} task(s) dispatched — watch the lines here or the Bench page for progress",
+  "map.dispatchNothing": "Nothing was dispatched this time",
+  "map.rejectedLine": "{device}: {reason}",
+  "map.templates": "Templates",
+  "map.templateNone": "No templates yet",
+  "map.templateApply": "Apply",
+  "map.templateApplyConfirm":
+    "Applying \"{name}\" replaces the whole tree on the canvas, connections included. Continue?",
+  "map.templateDelete": "Delete",
+  "map.templateDeleteConfirm":
+    "Delete template \"{name}\"? Templates are canvas structure only — the disk is untouched.",
+  "map.templateSaveAs": "Save as template…",
+  "map.templateName": "Template name",
+  "map.templateSave": "Save",
+  "map.refresh": "Refresh nodes",
+  "map.refreshTitle": "New folders about to join the map",
+  "map.refreshHint":
+    "These folders exist on disk but not on the map yet. Add-only, never deletes, never writes to disk.",
+  "map.refreshNothing": "Disk and map already agree — nothing to merge",
+  "map.refreshSkipped":
+    "These folders cannot join the map (their names are not valid node names); the rest are unaffected:",
+  "map.refreshSkippedLine": "{path} — {reason}",
+  "map.refreshApply": "Merge into map",
+  "map.refreshApplied": "New folders merged into the map",
+  "map.running": "Copying: {device}",
 };

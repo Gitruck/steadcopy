@@ -13,6 +13,7 @@ pub mod engine;
 pub mod error;
 pub mod ledger;
 pub mod manifest;
+pub mod map;
 pub mod i18n;
 pub mod platform;
 pub mod serde_time;

@@ -10,6 +10,7 @@ use time::OffsetDateTime;
 use crate::device::DeviceRecord;
 use crate::engine::HashAlgorithm;
 use crate::i18n::Locale;
+use crate::map::{FolderMap, MapError, MapTemplate};
 use crate::organize::{PathTemplate, TemplateError};
 use crate::preset::Preset;
 
@@ -51,6 +52,10 @@ pub struct Project {
     #[serde(with = "crate::serde_time")]
     pub created_at: OffsetDateTime,
     pub destinations: Vec<DestinationConfig>,
+    /// 拷贝导图（目录树 + 设备落位）。`default` 是为了老配置文件照读不误——
+    /// 没画过导图的项目就是没有，不补一棵空树占地方
+    #[serde(default)]
+    pub map: Option<FolderMap>,
 }
 
 impl Project {
@@ -60,6 +65,7 @@ impl Project {
             name: name.into(),
             created_at: at,
             destinations: Vec::new(),
+            map: None,
         }
     }
 
@@ -149,6 +155,9 @@ pub struct Config {
     pub presets: Vec<Preset>,
     #[serde(default)]
     pub devices: Vec<DeviceRecord>,
+    /// 导图模板（跨项目复用的目录树）。
+    #[serde(default)]
+    pub map_templates: Vec<MapTemplate>,
     #[serde(default)]
     pub settings: Settings,
 }
@@ -161,6 +170,7 @@ impl Default for Config {
             current_project: None,
             presets: Vec::new(),
             devices: Vec::new(),
+            map_templates: Vec::new(),
             settings: Settings::default(),
         }
     }
@@ -183,6 +193,10 @@ pub enum ConfigError {
     PresetProjectMissing { preset: String, project_id: String },
     /// 倒计时低于安全下限
     CountdownTooShort { secs: u32, min: u32 },
+    /// 项目的导图不合法（配置被外部改过）。带 [`MapError`] 本体，理由同 `BadTemplate`
+    BadMap { project: String, reason: MapError },
+    /// 某个导图模板不合法
+    BadMapTemplate { template: String, reason: MapError },
 }
 
 impl ConfigError {
@@ -235,6 +249,20 @@ impl ConfigError {
             (ConfigError::CountdownTooShort { secs, min }, Locale::En) => format!(
                 "The confirmation countdown for irreversible actions cannot be shorter than {min}s (you set {secs}s)"
             ),
+            (ConfigError::BadMap { project, reason }, Locale::Zh) => {
+                format!("项目「{project}」的导图不合法：{}", reason.describe(lang))
+            }
+            (ConfigError::BadMap { project, reason }, Locale::En) => format!(
+                "The copy map of project \"{project}\" is not valid: {}",
+                reason.describe(lang)
+            ),
+            (ConfigError::BadMapTemplate { template, reason }, Locale::Zh) => {
+                format!("导图模板「{template}」不合法：{}", reason.describe(lang))
+            }
+            (ConfigError::BadMapTemplate { template, reason }, Locale::En) => format!(
+                "The map template \"{template}\" is not valid: {}",
+                reason.describe(lang)
+            ),
         }
     }
 }
@@ -277,6 +305,23 @@ impl Config {
                         reason: e,
                     });
                 }
+            }
+            // 导图与目的地模板同一待遇：保存时就拒绝，不拖到派发时才失败
+            if let Some(m) = &p.map {
+                if let Err(e) = m.validate() {
+                    return Err(ConfigError::BadMap {
+                        project: p.name.clone(),
+                        reason: e,
+                    });
+                }
+            }
+        }
+        for t in &self.map_templates {
+            if let Err(e) = t.map.validate() {
+                return Err(ConfigError::BadMapTemplate {
+                    template: t.name.clone(),
+                    reason: e,
+                });
             }
         }
         for pr in &self.presets {
@@ -504,6 +549,64 @@ mod tests {
         let mut ok = Config::default();
         ok.settings.countdown_secs = 10;
         assert!(ok.validate().is_ok(), "下限 10 秒本身应合法");
+    }
+
+    // spec: copy-map → 树模型由 core 持有并校验（配置入库：序列化往返）
+    #[test]
+    fn scenario_copy_map_serde_roundtrip_in_config() {
+        use crate::map::{import_template_string, MapTemplate};
+
+        let mut c = Config::default();
+        let mut p = project_with(1);
+        let mut map = import_template_string("{项目}/{日期}/{设备}").expect("链");
+        let leaf = map.nodes.last().map(|n| n.id.clone()).expect("叶子");
+        map.add_assignment("vol:1", "A7M4", &leaf).expect("落位");
+        p.map = Some(map.clone());
+        c.projects.push(p);
+        c.map_templates.push(MapTemplate::from_map("婚礼模板", &map));
+        c.validate().expect("带导图的配置应合法");
+
+        // 往返一致：树、落位、模板一个字段都不丢
+        let json = serde_json::to_string_pretty(&c).expect("序列化");
+        let back: Config = serde_json::from_str(&json).expect("反序列化");
+        assert_eq!(back, c);
+
+        // 时间戳纪律不被破坏：created_at 仍是 rfc3339 字符串
+        let v: serde_json::Value = serde_json::from_str(&json).expect("json");
+        assert!(v["projects"][0]["created_at"].is_string(), "时间戳必须仍是字符串");
+
+        // 老配置（没有 map 字段）照读不误——不逼用户升级配置
+        let mut old = v.clone();
+        old["projects"][0].as_object_mut().expect("对象").remove("map");
+        old.as_object_mut().expect("对象").remove("map_templates");
+        let legacy: Config = serde_json::from_value(old).expect("老配置必须还能读");
+        assert!(legacy.projects[0].map.is_none());
+        assert!(legacy.map_templates.is_empty());
+    }
+
+    // spec: copy-map → 树模型由 core 持有并校验（配置入库：损坏不静默过关）
+    #[test]
+    fn scenario_copy_map_config_validate_rejects_broken_map() {
+        use crate::map::{FolderMap, MapNode};
+
+        let mut c = Config::default();
+        let mut p = project_with(1);
+        // 手改配置才可能出现的形态：父指针指向不存在的节点
+        p.map = Some(FolderMap {
+            nodes: vec![MapNode {
+                id: "map-1".into(),
+                name: "素材".into(),
+                parent: Some("map-不存在".into()),
+                children: vec![],
+            }],
+            assignments: vec![],
+        });
+        c.projects.push(p);
+        let err = c.validate().expect_err("坏导图必须在保存时被拒");
+        assert!(matches!(err, ConfigError::BadMap { .. }));
+        // 双语原因俱在
+        assert!(!err.describe(Locale::Zh).trim().is_empty());
+        assert_ne!(err.describe(Locale::Zh), err.describe(Locale::En));
     }
 
     #[test]

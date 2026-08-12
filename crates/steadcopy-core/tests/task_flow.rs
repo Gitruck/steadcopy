@@ -391,6 +391,7 @@ fn adhoc_req(src: &Path, project: ProjectChoice) -> AdhocRequest {
         verify: Some(true),
         algorithm: Some(HashAlgorithm::Xxh64),
         eject_after: false,
+        template_override: None,
     }
 }
 

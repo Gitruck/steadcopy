@@ -22,6 +22,7 @@ use steadcopy_core::error::{CoreError, ErrorContext, RetryableKind, TerminalKind
 use steadcopy_core::i18n::{has_cjk, Locale, PLACEHOLDERS};
 use steadcopy_core::ledger::LedgerError;
 use steadcopy_core::manifest::ManifestReadIssue;
+use steadcopy_core::map::MapError;
 use steadcopy_core::organize::TemplateError;
 use steadcopy_core::preset::{ArrivalOutcome, PresetMatch, SinkScope};
 use steadcopy_core::task::AdhocError;
@@ -172,6 +173,70 @@ fn all_config_errors() -> Vec<ConfigError> {
             project_id: "prj-404".into(),
         },
         ConfigError::CountdownTooShort { secs: 5, min: 10 },
+        ConfigError::BadMap {
+            project: "Wedding".into(),
+            reason: MapError::EmptyName,
+        },
+        ConfigError::BadMapTemplate {
+            template: "Wedding tree".into(),
+            reason: MapError::TooDeep { max: 12 },
+        },
+    ]
+}
+
+fn all_map_errors() -> Vec<MapError> {
+    vec![
+        MapError::EmptyName,
+        MapError::NameTooLong {
+            name: "A".repeat(101),
+            max: 100,
+            actual: 101,
+        },
+        MapError::IllegalCharacter { name: "a:b".into() },
+        MapError::ReservedName { name: "CON".into() },
+        MapError::PaddedName { name: "media ".into() },
+        MapError::BadPlaceholder {
+            name: "{x}".into(),
+            reason: TemplateError::UnknownPlaceholder("x".into()),
+        },
+        MapError::DuplicateSibling { name: "DCIM".into() },
+        MapError::TooDeep { max: 12 },
+        MapError::NodeMissing { id: "map-404".into() },
+        MapError::WouldCycle { name: "Video".into() },
+        MapError::AssignmentMissing { id: "lnk-404".into() },
+        MapError::DuplicateAssignment {
+            device_name: "A7M4".into(),
+            node_name: "Video".into(),
+        },
+        MapError::SourceOffline {
+            device_name: "A7M4".into(),
+        },
+        // 分叉在中途与分叉在顶层是两条不同的句子，都要盖
+        MapError::NotAChain {
+            at: Some("Video".into()),
+            branches: 2,
+        },
+        MapError::NotAChain {
+            at: None,
+            branches: 3,
+        },
+        MapError::EmptyMap,
+        MapError::BadTemplateString {
+            template: "media".into(),
+            reason: TemplateError::MissingRequiredPlaceholder,
+        },
+        MapError::Dispatch {
+            reason: AdhocError::AlreadyRunning {
+                device_name: "A7M4".into(),
+            },
+        },
+        MapError::Inconsistent {
+            detail: "node map-1 refers to a missing parent".into(),
+        },
+        MapError::Unreadable {
+            path: "D:\\media".into(),
+            reason: "access denied".into(),
+        },
     ]
 }
 
@@ -283,7 +348,32 @@ fn witness_all_enums() {
             | ConfigError::NoEnabledDestination { .. }
             | ConfigError::BadTemplate { .. }
             | ConfigError::PresetProjectMissing { .. }
-            | ConfigError::CountdownTooShort { .. } => {}
+            | ConfigError::CountdownTooShort { .. }
+            | ConfigError::BadMap { .. }
+            | ConfigError::BadMapTemplate { .. } => {}
+        }
+    }
+    for e in all_map_errors() {
+        match e {
+            MapError::EmptyName
+            | MapError::NameTooLong { .. }
+            | MapError::IllegalCharacter { .. }
+            | MapError::ReservedName { .. }
+            | MapError::PaddedName { .. }
+            | MapError::BadPlaceholder { .. }
+            | MapError::DuplicateSibling { .. }
+            | MapError::TooDeep { .. }
+            | MapError::NodeMissing { .. }
+            | MapError::WouldCycle { .. }
+            | MapError::AssignmentMissing { .. }
+            | MapError::DuplicateAssignment { .. }
+            | MapError::SourceOffline { .. }
+            | MapError::NotAChain { .. }
+            | MapError::EmptyMap
+            | MapError::BadTemplateString { .. }
+            | MapError::Dispatch { .. }
+            | MapError::Inconsistent { .. }
+            | MapError::Unreadable { .. } => {}
         }
     }
     for e in all_config_load_errors() {
@@ -452,6 +542,9 @@ fn scenario_i18n_english_output_has_no_cjk() {
     for e in all_config_errors() {
         check("配置校验错误", &strip_placeholders(&e.describe(Locale::En)));
     }
+    for e in all_map_errors() {
+        check("导图错误", &strip_placeholders(&e.describe(Locale::En)));
+    }
 
     // ── 安全检查 detail ───────────────────────────────────────
     for r in all_safety_reports(Locale::En) {
@@ -485,6 +578,7 @@ fn scenario_i18n_chinese_output_has_no_placeholder() {
     texts.extend(all_ledger_errors().iter().map(|e| e.describe(Locale::Zh)));
     texts.extend(all_manifest_issues().iter().map(|e| e.describe(Locale::Zh)));
     texts.extend(all_template_errors().iter().map(|e| e.describe(Locale::Zh)));
+    texts.extend(all_map_errors().iter().map(|e| e.describe(Locale::Zh)));
     texts.extend(REMOVABILITY.iter().map(|e| e.describe(Locale::Zh).to_string()));
     texts.extend(AUTO_FORMAT.iter().map(|d| d.reason(Locale::Zh).to_string()));
     for r in all_safety_reports(Locale::Zh) {
@@ -541,6 +635,9 @@ fn scenario_i18n_core_text_follows_locale() {
     for e in all_template_errors() {
         assert_ne!(e.describe(Locale::Zh), e.describe(Locale::En), "{e:?} 没翻");
     }
+    for e in all_map_errors() {
+        assert_ne!(e.describe(Locale::Zh), e.describe(Locale::En), "{e:?} 没翻");
+    }
     for e in REMOVABILITY {
         assert_ne!(e.describe(Locale::Zh), e.describe(Locale::En), "{e:?} 没翻");
     }
@@ -553,6 +650,9 @@ fn scenario_i18n_core_text_follows_locale() {
         assert_eq!(e.to_string(), e.describe(Locale::Zh), "Display 应恒为中文");
     }
     for e in all_eject_errors() {
+        assert_eq!(e.to_string(), e.describe(Locale::Zh), "Display 应恒为中文");
+    }
+    for e in all_map_errors() {
         assert_eq!(e.to_string(), e.describe(Locale::Zh), "Display 应恒为中文");
     }
 }

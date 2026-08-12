@@ -39,6 +39,7 @@ steadcopy fills that gap. It carries no revenue expectations, which is why it ca
 - **Presets + insert-and-run.** Plug a card in and it knows which project and which parameters. Matching runs narrowest-first across three tiers (specific device / kind of device / any identified source); order is priority
 - **Copying never requires a preset.** "Copy just once" is always available — presets are an accelerator, not a gate
 - **Remember what you just did.** While a copy runs, an inline prompt offers to turn this run into a standing preset. Defaults to the narrowest scope (just this card)
+- **Copy map.** Draw the destination folder tree as a node graph, wire each card to a folder node, and "Start all" lands every card exactly where the map says — each wire runs through the same execution and verification path as every other copy, and trees can be saved as templates. The concept honours a discontinued predecessor; this implementation is written from scratch and open source
 - **Plugging in a card always produces a conclusion.** Nine distinct outcomes are surfaced, each with a next step — never "I plugged it in and nothing happened"
 - **Unidentified devices never auto-run.** A device you've never told it about always stops at the identify step, and the danger-zone "skip confirmation" switch does not override that. Copying is recoverable; acting on an unknown device is not
 - **Pause / resume / cancel**, responding within one chunk; cancelling wakes a paused task immediately

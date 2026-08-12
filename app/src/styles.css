@@ -1,6 +1,7 @@
 /* 视觉定调：工位仪表感——信息密度高、状态语义严格、克制不营销。
-   clean-room 红线：不复刻前身的小窗形态、不做 Gate 的脑图画布、
-   不做 Kocard 的三色流水线并列大卡。
+   clean-room 红线：不复刻前身的小窗形态、不做 Kocard 的三色流水线并列大卡、
+   不复刻 Gate 的视觉表达（白底/粉栏/彩色贝塞尔/圆角卡片/自由摆放）——
+   概念经主理人 2026-08-12 拍板接入，见 openspec change add-steadcopy-copy-map。
 
    主色为蓝（2026-08-12 定）。原先没有独立的品牌色变量，导航选中条直接借用
    `--ok`——于是「品牌」与「校验通过」是同一个绿，改主题色就得散着改七处。
@@ -258,3 +259,59 @@ table.kv tbody tr:hover { background: none; }
   background: var(--bg); color: var(--fg); border: 1px solid var(--line);
   border-radius: 5px; padding: 2px 6px; font-size: 12px;
 }
+
+/* ---- 导图画布 ---- */
+/* 自家语言画同一个概念（openspec change add-steadcopy-copy-map · 设计 D3）：
+   暗底 + 正交树自动布局 + 直角折线；节点是 --panel-2 直角面板 + 左缘 --accent
+   竖条——与导航选中态同一套语法。连线色板轮转取既有语义色变量，没有绿
+   （上面的无绿闸门同样罩着这里），且颜色不是唯一载体：线上挂设备名标签。 */
+.map-wrap { display: flex; gap: 12px; flex: 1; min-height: 460px; }
+.map-src { width: 200px; flex: 0 0 200px; overflow-y: auto; }
+.map-src-h { margin-bottom: 4px; }
+.map-src-hint { margin-bottom: 8px; }
+.map-devcard { cursor: grab; }
+.map-devcard:active { cursor: grabbing; }
+.map-canvas {
+  flex: 1; min-width: 0; position: relative; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--line); outline: none;
+}
+.map-canvas:focus { border-color: #3a4353; }
+.map-canvas svg { display: block; width: 100%; height: 100%; user-select: none; }
+
+/* 节点：直角面板（刻意无圆角）+ 左缘品牌色竖条 */
+.map-node .box { fill: var(--panel-2); stroke: var(--line); }
+.map-node .mark { fill: var(--accent); }
+.map-node .nm { fill: var(--fg); font-size: 12px; pointer-events: none; }
+.map-node.sel .box { stroke: var(--accent); }
+.map-node.lift { opacity: .55; }
+.map-node.drop .box { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; }
+.map-node .cnt circle { fill: #12243a; stroke: var(--running); }
+.map-node .cnt text { fill: var(--running); font-size: 10px; pointer-events: none; }
+
+/* 树的父子边：细直角折线，中性色——它是结构，不承载状态 */
+.map-edge { stroke: var(--dim); stroke-width: 1.25; fill: none; }
+
+/* 设备落位连线：直角折线 + 车道口设备名标签。进行中沿线流动 */
+.map-line { stroke-width: 1.5; fill: none; }
+.map-line-label { font-size: 10.5px; cursor: pointer; }
+.map-line-g.running .map-line { stroke-dasharray: 6 4; animation: map-flow .9s linear infinite; }
+@keyframes map-flow { to { stroke-dashoffset: -10; } }
+
+/* 行内改名 / 加节点输入框（foreignObject 里） */
+.map-inline-input {
+  width: 100%; box-sizing: border-box;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--accent);
+  padding: 6px 9px; font: inherit; font-size: 12px;
+}
+.map-inline-input:focus { outline: none; }
+
+/* 空态：画布上方居中说明。解释导图是什么、怎么开始 */
+.map-empty {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px;
+  text-align: center; padding: 32px; pointer-events: none;
+  color: var(--muted); font-size: 12.5px;
+}
+.map-empty b { color: var(--fg); font-size: 14px; }
+.map-empty p { margin: 0; max-width: 520px; }
+.map-empty button, .map-empty div { pointer-events: auto; }

@@ -144,6 +144,34 @@ pub struct RenderContext {
 impl PathTemplate {
     /// 解析并校验模板。非法模板在此处被拒，**不允许**拖到拷贝时才失败。
     pub fn parse(raw: &str) -> Result<Self, TemplateError> {
+        let pieces = Self::parse_pieces(raw)?;
+
+        let has_required = pieces.iter().any(|p| match p {
+            Piece::Ph(ph) => Placeholder::REQUIRED_ANY.contains(ph),
+            Piece::Literal(_) => false,
+        });
+        if !has_required {
+            return Err(TemplateError::MissingRequiredPlaceholder);
+        }
+
+        Self::finish(pieces, raw)
+    }
+
+    /// 解析**导图节点路径**当模板用。语法与 [`Self::parse`] 完全一致，
+    /// 唯独不要求必需占位符。
+    ///
+    /// 字符串模板要求 `{项目}/{日期}/{设备}` 三者之一，防的是「不同来源的素材
+    /// 悄悄混进同一目录」——那条规则是给看不见结构的一串字准备的机械防线。
+    /// 导图里这层防线换了人：谁的卡连到哪个节点在画布上一目了然，
+    /// 「一个节点收几张卡」本来就是用户亲手画出来的显式决定（规范允许多卡进一节点）。
+    /// 所以这里只放开这一条；未知占位符、花括号配对、渲染为空照拒不误。
+    pub fn parse_map_path(raw: &str) -> Result<Self, TemplateError> {
+        let pieces = Self::parse_pieces(raw)?;
+        Self::finish(pieces, raw)
+    }
+
+    /// 纯词法：拆字面量与占位符。必需占位符之类的**规则**留给两个公开入口各自把关。
+    fn parse_pieces(raw: &str) -> Result<Vec<Piece>, TemplateError> {
         let mut pieces = Vec::new();
         let mut literal = String::new();
         let mut chars = raw.chars().peekable();
@@ -181,15 +209,10 @@ impl PathTemplate {
         if !literal.is_empty() {
             pieces.push(Piece::Literal(literal));
         }
+        Ok(pieces)
+    }
 
-        let has_required = pieces.iter().any(|p| match p {
-            Piece::Ph(ph) => Placeholder::REQUIRED_ANY.contains(ph),
-            Piece::Literal(_) => false,
-        });
-        if !has_required {
-            return Err(TemplateError::MissingRequiredPlaceholder);
-        }
-
+    fn finish(pieces: Vec<Piece>, raw: &str) -> Result<Self, TemplateError> {
         let tpl = Self {
             pieces,
             raw: raw.to_string(),
@@ -326,13 +349,21 @@ pub fn sanitize_segment(raw: &str) -> String {
     }
 
     // 保留设备名：整段等于保留名、或以「保留名.」开头，均需改写。
-    // split 至少给一段；给不出只可能是空串
-    let stem_upper = out.split('.').next().unwrap_or("").to_ascii_uppercase();
-    if RESERVED_NAMES.contains(&stem_upper.as_str()) {
+    if is_reserved_segment(&out) {
         out.push(REPLACEMENT);
     }
 
     out
+}
+
+/// 整段是否为 Windows 保留设备名（含「保留名.扩展名」形态，不区分大小写）。
+///
+/// 公开出来给导图的节点名校验用——保留名表只有这一份，
+/// 抄第二份的下场是两份各自演化、总有一天对不上。
+pub fn is_reserved_segment(segment: &str) -> bool {
+    // split 至少给一段；给不出只可能是空串
+    let stem_upper = segment.split('.').next().unwrap_or("").to_ascii_uppercase();
+    RESERVED_NAMES.contains(&stem_upper.as_str())
 }
 
 #[cfg(test)]
@@ -527,6 +558,32 @@ mod tests {
     fn scenario_organize_rules_backslash_treated_as_separator() {
         let t = PathTemplate::parse(r"{项目}\{设备}").expect("合法");
         assert_eq!(t.render(&ctx()), "婚礼/A7M4主卡");
+    }
+
+    // 导图节点路径：不要求必需占位符，其余规则原样生效
+    #[test]
+    fn scenario_copy_map_node_path_template_relaxes_only_required_rule() {
+        // 纯字面量的节点路径是导图的常态，必须放行
+        let t = PathTemplate::parse_map_path("素材/视频").expect("纯字面量应合法");
+        assert_eq!(t.render(&ctx()), "素材/视频");
+        // 同一串在字符串模板视图下仍被拒——两个视图各守各的门
+        assert_eq!(
+            PathTemplate::parse("素材/视频").unwrap_err(),
+            TemplateError::MissingRequiredPlaceholder
+        );
+        // 其余规则一条不少
+        assert_eq!(
+            PathTemplate::parse_map_path("{不存在}").unwrap_err(),
+            TemplateError::UnknownPlaceholder("不存在".into())
+        );
+        assert_eq!(
+            PathTemplate::parse_map_path("{项目").unwrap_err(),
+            TemplateError::UnbalancedBrace
+        );
+        assert_eq!(
+            PathTemplate::parse_map_path("///").unwrap_err(),
+            TemplateError::EmptyTemplate
+        );
     }
 
     #[test]

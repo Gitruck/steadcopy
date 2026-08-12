@@ -61,6 +61,14 @@ pub struct AdhocRequest {
     pub verify: Option<bool>,
     pub algorithm: Option<HashAlgorithm>,
     pub eject_after: bool,
+    /// 目的地模板覆盖。`None` 沿用各目的地自己配的模板；
+    /// `Some` 时**所有**启用目的地统一用这一串（按导图节点路径的宽松口径解析，
+    /// 见 [`crate::organize::PathTemplate::parse_map_path`]）。
+    ///
+    /// 为导图派发而设：节点在树里的路径就是模板。放在这里而不是让导图自己拼
+    /// `TaskSpec`，是因为「正在跑的设备拒绝」「校验不可跳过」这些不变量都长在
+    /// 这条构造路上——导图想绕开这条路，就得先绕开这些不变量，所以不给第二条路。
+    pub template_override: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,7 +230,11 @@ pub fn build_adhoc_spec(
     let mut destinations = Vec::with_capacity(chosen.len());
     for d in &chosen {
         // 模板不合法就明说是哪个目的地，别让用户对着一句「配置错误」猜
-        let template = d.parsed_template().map_err(|e| AdhocError::BadTemplate {
+        let template = match &req.template_override {
+            Some(raw) => crate::organize::PathTemplate::parse_map_path(raw),
+            None => d.parsed_template(),
+        }
+        .map_err(|e| AdhocError::BadTemplate {
             root: d.root.clone(),
             reason: e,
         })?;
@@ -287,6 +299,7 @@ mod tests {
             verify: None,
             algorithm: None,
             eject_after: false,
+            template_override: None,
         }
     }
 
@@ -495,6 +508,7 @@ mod tests {
                 verify: Some(from_preset.verify),
                 algorithm: Some(from_preset.algorithm),
                 eject_after: from_preset.eject_after,
+                template_override: None,
             },
             &[],
             at(),

@@ -69,8 +69,9 @@ NAS_DIR = r"T:\web\broadcast\steadcopy"
 PUBLIC_BASE = "https://api.ai-mcn.tv:9000/broadcast/steadcopy"
 
 # 要挂上镜像的东西。两个安装包都挂：镜像存在的理由之一就是国内下不动 GitHub，
-# 而离线版 206 MB 恰恰是最下不动的那个。
-WANTED_SUFFIXES = (".exe", ".exe.sig")
+# 而离线版 206 MB 恰恰是最下不动的那个。便携版与校验清单也挂——
+# 镜像同时是官网的主下载源（2026-08-12 起），用户核对校验码不该被迫绕道 GitHub。
+WANTED_SUFFIXES = (".exe", ".exe.sig", "-portable.zip", "SHA256SUMS.txt")
 
 
 def sha256(path):

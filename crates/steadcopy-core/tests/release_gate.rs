@@ -66,6 +66,7 @@ fn user_facing_docs() -> Vec<(String, String)> {
 fn app_user_text() -> String {
     let mut s = read("app/src/App.tsx");
     s.push_str(&read("app/src/components.tsx"));
+    s.push_str(&read("app/src/mapview.tsx"));
     s.push_str(&read("scripts/build-release.py"));
     s
 }
@@ -329,7 +330,7 @@ fn scenario_i18n_ui_has_no_hardcoded_chinese() {
     ];
 
     let mut hits = Vec::new();
-    for name in ["App.tsx", "components.tsx", "adhoc.tsx"] {
+    for name in ["App.tsx", "components.tsx", "adhoc.tsx", "mapview.tsx"] {
         let text = read(&format!("app/src/{name}"));
         let mut in_block_comment = false;
         for (n, line) in text.lines().enumerate() {
@@ -421,9 +422,46 @@ fn scenario_app_shell_palette_has_no_green() {
     // 拦下的色相区间：黄绿 → 春绿。青绿（>160）与黄（<80）都在外面
     const GREEN: std::ops::Range<f64> = 80.0..160.0;
 
+    // 扫描面：styles.css、报告模板、以及 app/src 下**全部** .tsx。
+    // 前端源码用**递归枚举**而不是写死文件名——mapview.tsx 当初就没进清单，
+    // 行内 style 里的一个绿 hex 能无声溜过闸门；非递归也不行，谁建个子目录放组件
+    // 同样溜过。.ts 一并扫：i18n 词典、常量表里同样可能藏行内色值。
+    let mut surfaces: Vec<(String, String)> = vec![
+        ("app/src/styles.css".into(), read("app/src/styles.css")),
+        (
+            "crates/steadcopy-core/src/ledger/report.rs".into(),
+            read("crates/steadcopy-core/src/ledger/report.rs"),
+        ),
+    ];
+    fn walk_frontend(dir: &Path, out: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(dir).expect("读前端源码目录").filter_map(|e| e.ok()) {
+            let p = e.path();
+            if p.is_dir() {
+                walk_frontend(&p, out);
+            } else if p.extension().is_some_and(|x| x == "tsx" || x == "ts") {
+                out.push(p);
+            }
+        }
+    }
+    let src_dir = repo_root().join("app/src");
+    let mut fe: Vec<PathBuf> = Vec::new();
+    walk_frontend(&src_dir, &mut fe);
+    fe.sort();
+    assert!(
+        fe.iter().any(|p| p.extension().is_some_and(|x| x == "tsx")),
+        "app/src 下一个 .tsx 都没枚举到？扫描面出了问题"
+    );
+    for p in fe {
+        let name = format!(
+            "app/src/{}",
+            p.strip_prefix(&src_dir).unwrap().to_string_lossy().replace('\\', "/")
+        );
+        let text = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("读不到 {name}：{e}"));
+        surfaces.push((name, text));
+    }
+
     let mut hits = Vec::new();
-    for rel in ["app/src/styles.css", "crates/steadcopy-core/src/ledger/report.rs"] {
-        let text = read(rel);
+    for (rel, text) in &surfaces {
         for (n, line) in text.lines().enumerate() {
             let bytes = line.as_bytes();
             for (i, _) in line.match_indices('#') {

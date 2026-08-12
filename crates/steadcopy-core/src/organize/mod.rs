@@ -13,5 +13,6 @@ pub use filter::{
 pub use scan::{detect_fingerprints, is_junk_path, scan_source, ScanOptions, ScanResult, SourceFile};
 pub use sidecar::{SidecarMatcher, StemRule};
 pub use path_template::{
-    sanitize_segment, sanitize_value, PathTemplate, Placeholder, RenderContext, TemplateError,
+    is_reserved_segment, sanitize_segment, sanitize_value, PathTemplate, Placeholder,
+    RenderContext, TemplateError,
 };
