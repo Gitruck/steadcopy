@@ -8,7 +8,7 @@
 在下载目录打开 PowerShell，执行：
 
 ```powershell
-Get-FileHash .\steadcopy_0.1.2_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\steadcopy_0.2.0_x64-setup.exe -Algorithm SHA256
 ```
 
 把输出的 `Hash` 与下面三处**任一**公示的值逐字比对（三处内容一致）：
@@ -23,8 +23,8 @@ Get-FileHash .\steadcopy_0.1.2_x64-setup.exe -Algorithm SHA256
 
 | | 大小 | 什么时候用 |
 |---|---|---|
-| `steadcopy_0.1.2_x64-setup.exe` | 4.13 MB | **默认选它。** 本机已有 WebView2 就直接装完；没有的话装的时候会去拉一下运行时 |
-| `steadcopy_0.1.2_x64-setup-offline.exe` | 206.67 MB | **片场没网、机器全新时选它。** WebView2 运行时整个打在包里，断网也能装 |
+| `steadcopy_0.2.0_x64-setup.exe` | 4.2 MB | **默认选它。** 本机已有 WebView2 就直接装完；没有的话装的时候会去拉一下运行时 |
+| `steadcopy_0.2.0_x64-setup-offline.exe` | 206.7 MB | **片场没网、机器全新时选它。** WebView2 运行时整个打在包里，断网也能装 |
 
 Windows 11 与 Windows 10 22H2 自带 WebView2，绝大多数机器用精简版就够。
 
@@ -39,14 +39,14 @@ Windows 11 与 Windows 10 22H2 自带 WebView2，绝大多数机器用精简版�
 
 ## 本次发布的校验码
 
-> 这三行来自 **v0.1.2 发布流水线**产出的 `SHA256SUMS.txt`，原样复制。
+> 这三行来自 **v0.2.0 发布流水线**产出的 `SHA256SUMS.txt`，原样复制。
 > 每次发版都要整段换新：每次编译产出的字节都不同（Rust 编译不是逐字节可复现的），
 > 照抄旧值会让所有认真核对的人都对不上，然后他们只能猜是自己下坏了还是包被人动过。
 
 ```
-07c85a03d16737e731c4676182e6496a83d6939ccfe8383995f836bdf05343f3  steadcopy_0.1.2_x64-setup.exe
-209ef28de7f6f5f78f78b7c03818c9bc05d290e8f778f5a1936b07549298ab29  steadcopy_0.1.2_x64-setup-offline.exe
-f43b93d80ca143638454b6bf84d462082f2adce7577fbe2d016868efd3836ea6  steadcopy-0.1.2-portable.zip
+08e7073b53f441afd0909e53ba9ec3d3175ec4c8725afb39d06062fad8b6b996  steadcopy_0.2.0_x64-setup.exe
+6b7a32015edf1676c9d253e2b6ca9166141e9ebb68a0b177547c3b4687de0df0  steadcopy_0.2.0_x64-setup-offline.exe
+375ae99747674a0fc2f49d48945f9276e7e087b6a7d01e31da6a3be2299488d5  steadcopy-0.2.0-portable.zip
 ```
 
 以 `SHA256SUMS.txt` 为准，它由打包流水线在出包的同一次运行里生成，不是事后手抄的。
@@ -75,7 +75,7 @@ f43b93d80ca143638454b6bf84d462082f2adce7577fbe2d016868efd3836ea6  steadcopy-0.1.
 
 ## 便携版
 
-`steadcopy-0.1.2-portable.zip`（7.1 MB）解压即用：数据全部落在同目录的 `data\` 里，
+`steadcopy-0.2.0-portable.zip`（7.2 MB）解压即用：数据全部落在同目录的 `data\` 里，
 不写注册表，整个文件夹拷到别的机器上照样能用，卸载就是删文件夹。便携版与安装版的数据
 是分开的，同一台机器上并存也互不影响。
 
