@@ -84,6 +84,9 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [nameVal, setNameVal] = useState("");
   const [adding, setAdding] = useState<{ parentId: string | null } | null>(null);
+  // 拖设备时悬停在哪个节点上。与拖节点换父的 dropTarget 分开：
+  // 两件事同时只会发生一件，但混用一个状态会让「拖到一半切换来源」留下脏高亮
+  const [devOver, setDevOver] = useState<string | null>(null);
   const [addVal, setAddVal] = useState("");
   const [notices, setNotices] = useState<Notice[]>([]);
   const [refreshList, setRefreshList] = useState<MapRefreshPreview | null>(null);
@@ -416,9 +419,12 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
   };
 
   const onDeviceDrop = (e: React.DragEvent, nodeId: string) => {
-    const id = e.dataTransfer.getData(DEV_MIME);
-    if (!id) return;
+    // preventDefault 必须在最前：晚一步浏览器就按默认行为处理掉了
     e.preventDefault();
+    setDevOver(null);
+    // 自定义 MIME 在个别引擎里取不到，退回 text/plain——dragstart 两个都塞了
+    const id = e.dataTransfer.getData(DEV_MIME) || e.dataTransfer.getData("text/plain");
+    if (!id) return;
     api.mapAssign(id, nodeId).then(setView, (x) => onError(String(x)));
   };
 
@@ -757,9 +763,13 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                     key={d.id}
                     className="dev usable map-devcard"
                     draggable
+                    onDragEnd={() => setDevOver(null)}
                     onDragStart={(e) => {
                       e.dataTransfer.setData(DEV_MIME, d.id);
-                      e.dataTransfer.effectAllowed = "link";
+                      // text/plain 兜底：自定义 MIME 在个别引擎的 drop 里取不到
+                      e.dataTransfer.setData("text/plain", d.id);
+                      // 用 copy 而不是 link：link 在 Chromium 下不按修饰键就被算成 none
+                      e.dataTransfer.effectAllowed = "copy";
                     }}
                   >
                     <div className="hd">
@@ -834,7 +844,7 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                     const cls = [
                       "map-node",
                       sel === n.id ? "sel" : "",
-                      dropTarget === n.id ? "drop" : "",
+                      dropTarget === n.id || devOver === n.id ? "drop" : "",
                       dragging === n.id ? "lift" : "",
                     ]
                       .filter(Boolean)
@@ -847,8 +857,14 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                         onPointerDown={(e) => onNodePointerDown(e, n.id)}
                         onDoubleClick={() => startRename(n.id)}
                         onDragOver={(e) => {
-                          if (e.dataTransfer.types.includes(DEV_MIME)) e.preventDefault();
+                          // **dropEffect 必须显式设。** 不设的话 Chromium 会按
+                          // effectAllowed 算出 "none"，光标变成禁止符号、drop 根本不触发——
+                          // 「设备拖不过来」就是这么来的，而代码看起来一切正常。
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "copy";
+                          if (devOver !== n.id) setDevOver(n.id);
                         }}
+                        onDragLeave={() => setDevOver((cur) => (cur === n.id ? null : cur))}
                         onDrop={(e) => onDeviceDrop(e, n.id)}
                       >
                         <rect className="box" width={NODE_W} height={NODE_H} />
