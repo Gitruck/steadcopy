@@ -286,6 +286,7 @@ fn write_html_report(
         elapsed_secs,
         generated_at: SystemClock.now(),
         audit: None,
+        lang: output::lang(),
     };
     write_report(&target, &input).map_err(|e| format!("报告写入失败：{e}"))?;
     Ok(target)

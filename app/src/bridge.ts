@@ -72,6 +72,8 @@ export type Settings = {
   countdown_secs: number;
   /** `auto` / `zh` / `en`。默认跟随系统，判不出来落中文 */
   locale: string;
+  /** 是否允许检查更新。默认关——不联网是默认承诺，联网得你主动开 */
+  update_check: boolean;
 };
 
 export type Config = {
@@ -251,6 +253,14 @@ export type Progress = {
   eta_secs: number | null;
 };
 
+export type UpdateInfo = {
+  available: boolean;
+  current: string;
+  version: string | null;
+  notes: string | null;
+  date: string | null;
+};
+
 export type BuildInfo = {
   version: string;
   commit: string;
@@ -342,6 +352,10 @@ export const api = {
     invoke<void>("reveal_landing_dir", { manifestPath }),
 
   appVersion: () => invoke<string>("app_version"),
+  /** 查一次有没有新版本。**只在用户点了按钮时调**，没有后台轮询 */
+  checkUpdate: () => invoke<UpdateInfo>("check_update"),
+  /** 下载并安装。检查与安装是两个动作，中间隔着用户的一次决定 */
+  installUpdate: () => invoke<void>("install_update"),
   buildInfo: () => invoke<BuildInfo>("build_info"),
   thirdPartyLicenses: () => invoke<LicenseList>("third_party_licenses"),
 };

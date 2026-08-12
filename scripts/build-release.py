@@ -39,6 +39,9 @@ TARGET_RELEASE = os.path.join(ROOT, "target", "release")
 # 便携版标记文件。文件名与 core 的 config::store::PORTABLE_MARKER 必须一致
 PORTABLE_MARKER = "steadcopy.portable"
 
+# 离线版产物名里的标记（来自 tauri.offline.conf.json 的 productName）
+OFFLINE_MARK = "离线版"
+
 
 def step(n, total, title):
     print(f"\n[{n}/{total}] {title}", flush=True)
@@ -73,6 +76,14 @@ def version():
 def main():
     v = version()
     stamp = str(int(time.time()))
+    # 签名密钥：本地开发时从 .updater-key 读进来（CI 里由 secret 直接给环境变量）。
+    # 没有密钥就打不出 .sig，而没有 .sig 的包更新器一律拒装——所以这里明说
+    key = os.path.join(ROOT, ".updater-key")
+    if "TAURI_SIGNING_PRIVATE_KEY" not in os.environ and os.path.exists(key):
+        os.environ["TAURI_SIGNING_PRIVATE_KEY"] = open(key, encoding="utf-8").read().strip()
+        os.environ.setdefault("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "")
+    if "TAURI_SIGNING_PRIVATE_KEY" not in os.environ:
+        print("⚠ 没有签名密钥，本次产物不含 .sig —— 这样的包更新器会拒装")
     total = 7
     print(f"稳拷 steadcopy {v} 发布构建")
 
@@ -91,9 +102,19 @@ def main():
     run(["cargo", "build", "--release", "-p", "steadcopy-cli"],
         env={"STEADCOPY_BUILD_TIME": stamp})
 
-    step(5, total, "打包桌面应用与安装包")
+    step(5, total, "打包桌面应用与安装包（精简版 + 离线版）")
+    os.makedirs(RELEASE, exist_ok=True)
+    # 精简版：downloadBootstrapper。本机已有 WebView2 就直接装完，没有才去拉
     run([node_bin("tauri"), "build"], cwd=APP,
         env={"STEADCOPY_BUILD_TIME": stamp})
+    # **先搬走再打第二个**——两次 build 输出到同一目录，不搬会被盖掉
+    if os.path.isdir(BUNDLE):
+        for f in os.listdir(BUNDLE):
+            if f.endswith(".exe") or f.endswith(".sig"):
+                shutil.copy2(os.path.join(BUNDLE, f), os.path.join(RELEASE, ascii_name(f, v)))
+    # 离线版：offlineInstaller，运行时整个打进去，断网也能装
+    run([node_bin("tauri"), "build", "--config", "src-tauri/tauri.offline.conf.json"],
+        cwd=APP, env={"STEADCOPY_BUILD_TIME": stamp})
 
     step(6, total, "组装便携版")
     make_portable(v)
@@ -175,17 +196,39 @@ def make_portable(v):
           f"（{os.path.getsize(zip_path) / 1048576:.1f} MB）")
 
 
+def ascii_name(f, v):
+    """产物文件名一律 ASCII。
+
+    程序**装好之后**叫「稳拷」（productName 决定的，那是对的）；但**下载文件名**
+    必须是 ASCII——GitHub Releases 的资源 URL 会把非 ASCII 百分号编码，
+    更新器按 latest.json 里的原样 url 去取就取不到，而且这种失败只在
+    真的发布之后才暴露。
+    """
+    offline = OFFLINE_MARK in f
+    suffix = ".exe.sig" if f.endswith(".sig") else ".exe"
+    return f"steadcopy_{v}_x64-setup{'-offline' if offline else ''}{suffix}"
+
+
 def checksums():
-    """把安装包与便携版一起算进校验清单。三处公示以这份为准。"""
-    targets = []
+    """把两个安装包与便携版一起算进校验清单。三处公示以这份为准。"""
+    v = version()
+    # 第二次 build 的产物还在 BUNDLE 里，先收进来（顺便改成 ASCII 名）
     if os.path.isdir(BUNDLE):
-        for f in sorted(os.listdir(BUNDLE)):
-            if f.endswith(".exe"):
-                targets.append((f, os.path.join(BUNDLE, f)))
-                shutil.copy2(os.path.join(BUNDLE, f), os.path.join(RELEASE, f))
-    for f in sorted(os.listdir(RELEASE)):
-        if f.endswith("-portable.zip"):
-            targets.append((f, os.path.join(RELEASE, f)))
+        for f in os.listdir(BUNDLE):
+            if f.endswith(".exe") or f.endswith(".sig"):
+                shutil.copy2(os.path.join(BUNDLE, f), os.path.join(RELEASE, ascii_name(f, v)))
+    # 第一次 build 时搬进来的那批还是中文名，一并归一
+    for f in list(os.listdir(RELEASE)):
+        if (f.endswith(".exe") or f.endswith(".sig")) and not f.startswith("steadcopy_"):
+            os.replace(os.path.join(RELEASE, f), os.path.join(RELEASE, ascii_name(f, v)))
+
+    # 校验清单只列用户会下载的东西。`.sig` 是给更新器验签用的，
+    # 它自己就是凭证，不需要再为它出一份凭证
+    targets = [
+        (f, os.path.join(RELEASE, f))
+        for f in sorted(os.listdir(RELEASE))
+        if f.endswith(".exe") or f.endswith("-portable.zip")
+    ]
 
     if not targets:
         raise SystemExit("没有找到任何发布产物，校验清单不该是空的")

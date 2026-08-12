@@ -14,6 +14,7 @@ use std::path::Path;
 
 use time::OffsetDateTime;
 
+use crate::i18n::Locale;
 use crate::manifest::store::format_time_human;
 use crate::manifest::{AuditReport, Manifest};
 
@@ -32,6 +33,8 @@ pub struct ReportInput<'a> {
     pub generated_at: OffsetDateTime,
     /// 若同时做了复验，附上四态结果
     pub audit: Option<&'a AuditReport>,
+    /// 报告用哪种语言。**报告是要拿给客户看的**，所以它跟界面同一份设置
+    pub lang: Locale,
 }
 
 fn esc(s: &str) -> String {
@@ -56,12 +59,16 @@ fn human_bytes(n: u64) -> String {
     }
 }
 
-fn human_duration(secs: u64) -> String {
-    match secs {
-        0 => "不到 1 秒".to_string(),
-        1..=59 => format!("{secs} 秒"),
-        60..=3599 => format!("{} 分 {} 秒", secs / 60, secs % 60),
-        _ => format!("{} 小时 {} 分", secs / 3600, (secs % 3600) / 60),
+fn human_duration(secs: u64, lang: Locale) -> String {
+    match (secs, lang) {
+        (0, Locale::Zh) => "不到 1 秒".to_string(),
+        (0, Locale::En) => "under 1s".to_string(),
+        (1..=59, Locale::Zh) => format!("{secs} 秒"),
+        (1..=59, Locale::En) => format!("{secs}s"),
+        (60..=3599, Locale::Zh) => format!("{} 分 {} 秒", secs / 60, secs % 60),
+        (60..=3599, Locale::En) => format!("{}m {}s", secs / 60, secs % 60),
+        (_, Locale::Zh) => format!("{} 小时 {} 分", secs / 3600, (secs % 3600) / 60),
+        (_, Locale::En) => format!("{}h {}m", secs / 3600, (secs % 3600) / 60),
     }
 }
 
@@ -100,45 +107,90 @@ footer{margin-top:32px;padding-top:12px;border-top:1px solid var(--line);color:v
 
 /// 生成一份自包含的 HTML 报告。
 pub fn render_report(input: &ReportInput<'_>) -> String {
+    let lang = input.lang;
+    // 取文案的小助手。报告里几十处文案，每处都写一个 match 会把渲染逻辑淹掉
+    let w = |zh: &'static str, en: &'static str| lang.pick(zh, en);
     let m = input.manifest;
     let total = m.entries.len();
     let verified = m.verified_count();
     let failed = input.failures.len();
 
     let mut h = String::with_capacity(16 * 1024);
-    h.push_str("<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n");
     let _ = write!(
         h,
-        "<title>拷卡报告 · {} · {}</title>\n<style>{STYLE}</style>\n</head>\n<body>\n",
+        "<!DOCTYPE html>\n<html lang=\"{}\">\n<head>\n<meta charset=\"utf-8\">\n",
+        w("zh-CN", "en")
+    );
+    let _ = write!(
+        h,
+        "<title>{} · {} · {}</title>\n<style>{STYLE}</style>\n</head>\n<body>\n",
+        w("拷卡报告", "Copy report"),
         esc(&m.project),
         esc(&m.source.display_name)
     );
 
     let _ = write!(
         h,
-        "<h1>拷卡报告</h1>\n<div class=\"sub\">项目「{}」 · 来源「{}」 · 生成于 {}</div>\n",
-        esc(&m.project),
-        esc(&m.source.display_name),
-        esc(&format_time_human(input.generated_at))
+        "<h1>{}</h1>\n<div class=\"sub\">{}</div>\n",
+        w("拷卡报告", "Copy report"),
+        esc(&match lang {
+            Locale::Zh => format!(
+                "项目「{}」 · 来源「{}」 · 生成于 {}",
+                m.project,
+                m.source.display_name,
+                format_time_human(input.generated_at)
+            ),
+            Locale::En => format!(
+                "Project {} · Source {} · Generated {}",
+                m.project,
+                m.source.display_name,
+                format_time_human(input.generated_at)
+            ),
+        })
     );
 
     // ---- 结论：报告最该被一眼看到的东西 ----
     let (cls, verdict) = if failed > 0 {
         (
             "v-bad",
-            format!("部分失败：{verified} 个文件校验通过，{failed} 个失败（详见下方失败清单）"),
+            match lang {
+                Locale::Zh => format!(
+                    "部分失败：{verified} 个文件校验通过，{failed} 个失败（详见下方失败清单）"
+                ),
+                Locale::En => format!(
+                    "Partly failed: {verified} verified, {failed} failed — see the failure list below"
+                ),
+            },
         )
     } else if verified == total && total > 0 {
         (
             "v-ok",
-            format!("全部 {total} 个文件校验通过，共 {}", human_bytes(m.total_bytes())),
+            match lang {
+                Locale::Zh => {
+                    format!("全部 {total} 个文件校验通过，共 {}", human_bytes(m.total_bytes()))
+                }
+                Locale::En => format!(
+                    "All {total} file(s) verified · {} total",
+                    human_bytes(m.total_bytes())
+                ),
+            },
         )
     } else if total == 0 {
-        ("v-warn", "本次没有拷贝任何文件".to_string())
+        (
+            "v-warn",
+            w("本次没有拷贝任何文件", "Nothing was copied this time").to_string(),
+        )
     } else {
         (
             "v-warn",
-            format!("{total} 个文件已拷贝，但本次未开启校验——无法确认写入是否完好"),
+            match lang {
+                Locale::Zh => {
+                    format!("{total} 个文件已拷贝，但本次未开启校验——无法确认写入是否完好")
+                }
+                Locale::En => format!(
+                    "{total} file(s) copied, but verification was off — whether they landed intact is unknown"
+                ),
+            },
         )
     };
     let _ = writeln!(h, "<div class=\"verdict {cls}\">{}</div>", esc(&verdict));
@@ -148,7 +200,7 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
     }
 
     // ---- 概要 ----
-    h.push_str("<h2>概要</h2>\n<div class=\"grid\">\n");
+    let _ = writeln!(h, "<h2>{}</h2>\n<div class=\"grid\">", w("概要", "Summary"));
     let mut cell = |k: &str, v: &str| {
         let _ = writeln!(
             h,
@@ -157,39 +209,59 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
             esc(v)
         );
     };
-    cell("项目", &m.project);
-    cell("来源设备", &m.source.display_name);
-    cell("目的地", &m.destination_root.display().to_string());
-    cell("文件数", &format!("{total} 个"));
-    cell("总大小", &human_bytes(m.total_bytes()));
+    cell(w("项目", "Project"), &m.project);
+    cell(w("来源设备", "Source device"), &m.source.display_name);
     cell(
-        "校验",
+        w("目的地", "Destination"),
+        &m.destination_root.display().to_string(),
+    );
+    cell(w("文件数", "Files"), &format!("{total}"));
+    cell(w("总大小", "Total size"), &human_bytes(m.total_bytes()));
+    cell(
+        w("校验", "Verification"),
         &if verified == total && total > 0 {
-            format!("已校验 · {}", m.algorithm)
+            format!("{} · {}", w("已校验", "Verified"), m.algorithm)
         } else if verified == 0 {
-            "未开启".to_string()
+            w("未开启", "Off").to_string()
         } else {
-            format!("{verified}/{total} 已校验 · {}", m.algorithm)
+            format!(
+                "{verified}/{total} {} · {}",
+                w("已校验", "verified"),
+                m.algorithm
+            )
         },
     );
     if input.skipped > 0 {
-        cell("已跳过", &format!("{} 个（此前已拷并校验通过）", input.skipped));
+        cell(
+            w("已跳过", "Skipped"),
+            &match lang {
+                Locale::Zh => format!("{} 个（此前已拷并校验通过）", input.skipped),
+                Locale::En => format!("{} (already copied and verified)", input.skipped),
+            },
+        );
     }
     if let Some(s) = input.elapsed_secs {
-        cell("耗时", &human_duration(s));
+        cell(w("耗时", "Elapsed"), &human_duration(s, lang));
         if s > 0 {
             cell(
-                "平均速度",
-                &format!("{}/秒", human_bytes(m.total_bytes() / s.max(1))),
+                w("平均速度", "Average speed"),
+                &format!("{}/s", human_bytes(m.total_bytes() / s.max(1))),
             );
         }
     }
-    cell("完成时间", &format_time_human(m.created_at));
+    cell(w("完成时间", "Completed"), &format_time_human(m.created_at));
     h.push_str("</div>\n");
 
     // ---- 失败清单：MUST 显著，不折叠 ----
     if failed > 0 {
-        h.push_str("<h2>失败清单</h2>\n<table>\n<thead><tr><th>文件</th><th>原因</th><th class=\"num\">重试</th></tr></thead>\n<tbody>\n");
+        let _ = writeln!(
+            h,
+            "<h2>{}</h2>\n<table>\n<thead><tr><th>{}</th><th>{}</th><th class=\"num\">{}</th></tr></thead>\n<tbody>",
+            w("失败清单", "Failures"),
+            w("文件", "File"),
+            w("原因", "Reason"),
+            w("重试", "Retries")
+        );
         for (path, reason, retries) in input.failures {
             let _ = writeln!(
                 h,
@@ -204,12 +276,16 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
     // ---- 复验四态（若有）----
     if let Some(a) = input.audit {
         let c = a.counts();
-        h.push_str("<h2>复验结果</h2>\n<div class=\"grid\">\n");
+        let _ = writeln!(
+            h,
+            "<h2>{}</h2>\n<div class=\"grid\">",
+            w("复验结果", "Re-verification")
+        );
         for (k, v, t) in [
-            ("一致", c.intact, "t-ok"),
-            ("已移动", c.moved, "t-warn"),
-            ("丢失", c.missing, "t-bad"),
-            ("新增", c.added, "t-warn"),
+            (w("一致", "Intact"), c.intact, "t-ok"),
+            (w("已移动", "Moved"), c.moved, "t-warn"),
+            (w("丢失", "Missing"), c.missing, "t-bad"),
+            (w("新增", "Added"), c.added, "t-warn"),
         ] {
             let _ = writeln!(
                 h,
@@ -218,10 +294,23 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
         }
         h.push_str("</div>\n");
         if !a.complete {
-            h.push_str("<div class=\"notice\">复验被中断，结果不完整。</div>\n");
+            let _ = writeln!(
+                h,
+                "<div class=\"notice\">{}</div>",
+                w(
+                    "复验被中断，结果不完整。",
+                    "Re-verification was interrupted; the result is incomplete."
+                )
+            );
         }
         if !a.missing.is_empty() {
-            h.push_str("<table>\n<thead><tr><th>丢失的文件</th><th class=\"num\">大小</th><th>期望校验值</th></tr></thead>\n<tbody>\n");
+            let _ = writeln!(
+                h,
+                "<table>\n<thead><tr><th>{}</th><th class=\"num\">{}</th><th>{}</th></tr></thead>\n<tbody>",
+                w("丢失的文件", "Missing files"),
+                w("大小", "Size"),
+                w("期望校验值", "Expected hash")
+            );
             for x in &a.missing {
                 let _ = writeln!(
                     h,
@@ -236,12 +325,20 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
     }
 
     // ---- 文件清单 ----
-    h.push_str("<h2>文件清单</h2>\n<table>\n<thead><tr><th>文件</th><th class=\"num\">大小</th><th>校验值</th><th>状态</th></tr></thead>\n<tbody>\n");
+    let _ = writeln!(
+        h,
+        "<h2>{}</h2>\n<table>\n<thead><tr><th>{}</th><th class=\"num\">{}</th><th>{}</th><th>{}</th></tr></thead>\n<tbody>",
+        w("文件清单", "File list"),
+        w("文件", "File"),
+        w("大小", "Size"),
+        w("校验值", "Hash"),
+        w("状态", "Status")
+    );
     for e in &m.entries {
         let (tag, label) = if e.verify.is_verified() {
-            ("t-ok", "已校验")
+            ("t-ok", w("已校验", "Verified"))
         } else {
-            ("t-warn", "未校验")
+            ("t-warn", w("未校验", "Not verified"))
         };
         let _ = writeln!(
             h,
@@ -255,10 +352,17 @@ pub fn render_report(input: &ReportInput<'_>) -> String {
 
     let _ = writeln!(
         h,
-        "<footer>由 {} {} 生成 · 校验算法 {} · 本报告为单文件，可离线打开，也可用浏览器打印为 PDF</footer>",
-        esc(&m.generator.name),
-        esc(&m.generator.version),
-        m.algorithm
+        "<footer>{}</footer>",
+        esc(&match lang {
+            Locale::Zh => format!(
+                "由 {} {} 生成 · 校验算法 {} · 本报告为单文件，可离线打开，也可用浏览器打印为 PDF",
+                m.generator.name, m.generator.version, m.algorithm
+            ),
+            Locale::En => format!(
+                "Generated by {} {} · hash {} · a single self-contained file: opens offline, prints to PDF",
+                m.generator.name, m.generator.version, m.algorithm
+            ),
+        })
     );
     h.push_str("</body>\n</html>\n");
     h
@@ -315,6 +419,7 @@ mod tests {
 
     fn input<'a>(m: &'a Manifest, failures: &'a [(String, String, u32)]) -> ReportInput<'a> {
         ReportInput {
+            lang: Locale::Zh,
             manifest: m,
             failures,
             skipped: 0,

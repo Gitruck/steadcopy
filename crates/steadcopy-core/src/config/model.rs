@@ -88,6 +88,10 @@ pub struct Settings {
     /// 界面与命令行的语言：`auto` / `zh` / `en`。默认跟随系统，判不出来落中文
     #[serde(default = "default_locale")]
     pub locale: String,
+    /// 是否允许检查更新。**默认关**——「不联网」是本产品的默认承诺，
+    /// 联网必须是用户主动开的。开了也只在用户点按钮时才发请求，没有后台轮询
+    #[serde(default)]
+    pub update_check: bool,
 }
 
 fn default_locale() -> String {
@@ -106,6 +110,7 @@ impl Default for Settings {
             eject_after: false,
             format_after_copy: false,
             locale: default_locale(),
+            update_check: false,
             countdown_secs: crate::device::COUNTDOWN_DEFAULT_SECS,
         }
     }

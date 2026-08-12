@@ -37,6 +37,7 @@ use steadcopy_core::task::{
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_updater::UpdaterExt;
 
 // ---------------------------------------------------------------- 状态
 
@@ -1107,6 +1108,7 @@ fn execute_run(app: &AppHandle, device_id: &str) -> Result<RunView, String> {
                     notices: &report.notices,
                     elapsed_secs: Some(t0.elapsed().as_secs()),
                     generated_at: clock.now(),
+                    lang,
                     audit: None,
                 };
                 let _ = std::fs::write(mp.with_extension("html"), render_report(&input));
@@ -1373,6 +1375,7 @@ fn report_html(manifest_path: String) -> Result<String, String> {
         notices: &[],
         elapsed_secs: None,
         generated_at: SystemClock.now(),
+        lang: lang(),
         audit: None,
     }))
 }
@@ -1665,6 +1668,101 @@ fn open_report_file(app: AppHandle, manifest_path: String) -> Result<(), String>
         .map_err(|e| e.to_string())
 }
 
+// ---------------------------------------------------------------- 更新
+//
+// 规范：能力 `build-release` 的 spec → Requirement: 更新检查非强制
+//
+// **这里的每一条约束都是刻意的：**
+//
+// - **只在用户点了才查。** 没有后台轮询、没有启动时自动检查。
+//   「零遥测」的含义因此仍然成立：程序自己从不联网，联网只发生在用户按下按钮之后。
+// - **可以彻底关掉。** 关掉之后连按钮都没有，更谈不上请求。
+// - **绝不自动安装。** 查到新版本只告诉你，装不装你说了算。
+// - **更新地址写死在编译期。** 不从配置读——更新地址一旦可配，
+//   谁能改配置文件谁就能让所有客户端静默安装任意程序。
+// - **验签由官方 updater 用编译进程序的公钥做。** 私钥只在发布机与 CI secret 里。
+
+#[derive(Serialize)]
+struct UpdateInfo {
+    available: bool,
+    current: String,
+    /// 有新版本时才有值
+    version: Option<String>,
+    notes: Option<String>,
+    date: Option<String>,
+}
+
+/// 查一次有没有新版本。**只有用户按了按钮才会走到这里。**
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
+    let cfg = load_cfg()?;
+    if !cfg.settings.update_check {
+        // 关掉之后连请求都不该发出去，而不是「发了但不提示」
+        return Err(steadcopy_core::i18n::Locale::resolve(&cfg.settings.locale)
+            .pick(
+                "更新检查已在设置里关闭",
+                "Update checking is turned off in settings",
+            )
+            .to_string());
+    }
+
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    match updater.check().await {
+        Ok(Some(u)) => Ok(UpdateInfo {
+            available: true,
+            current,
+            version: Some(u.version.clone()),
+            notes: u.body.clone(),
+            date: u.date.map(|d| d.to_string()),
+        }),
+        Ok(None) => Ok(UpdateInfo {
+            available: false,
+            current,
+            version: None,
+            notes: None,
+            date: None,
+        }),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// 下载并安装。**必须由用户在看到版本号之后再点一次**——
+/// 检查与安装是两个动作，中间隔着用户的一次决定。
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    let cfg = load_cfg()?;
+    if !cfg.settings.update_check {
+        return Err("更新检查已关闭".into());
+    }
+    // 有任务在跑就不装——装更新会重启程序，正在拷的卡就断在半路
+    let running = app
+        .state::<AppState>()
+        .running
+        .lock()
+        .map(|r| r.clone())
+        .map_err(|_| "任务状态锁异常")?;
+    if !running.is_empty() {
+        return Err(steadcopy_core::i18n::Locale::resolve(&cfg.settings.locale)
+            .pick(
+                "有任务正在进行，等它跑完再更新——装更新会重启程序",
+                "A task is running. Wait for it to finish — installing an update restarts the app",
+            )
+            .to_string());
+    }
+
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+        return Err("已经是最新版本".into());
+    };
+    // 验签由 updater 用编译进程序的公钥做；签名对不上这里就会失败
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
+}
+
 #[tauri::command]
 fn app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
@@ -1760,6 +1858,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             app.manage(AppState::default());
             Ok(())
@@ -1803,6 +1902,8 @@ pub fn run() {
             open_report_file,
             reveal_landing_dir,
             app_version,
+            check_update,
+            install_update,
             build_info,
             third_party_licenses,
             scan,

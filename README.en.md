@@ -59,7 +59,7 @@ Get-FileHash .\稳拷_0.1.0_x64-setup.exe -Algorithm SHA256
 
 Compare against the value published on the Releases page. Install only if they match.
 
-The installer is ~205 MB because **the WebView2 runtime is bundled in full** — no network at the shoot is a hard constraint, and an installer that downloads components is not acceptable. A portable zip (~6 MB) is also provided; it relies on the system's WebView2 (present on Windows 11 and Windows 10 22H2).
+**Two installers, pick one**: the slim build is ~4 MB (it assumes WebView2 is already present, which it is on Windows 11 and Windows 10 22H2), the offline build is ~206 MB (the runtime is bundled in full, so it installs with no network at all). No network at the shoot is a hard constraint, so the offline build has to exist — but making everyone download 206 MB for it would be unreasonable. A portable zip (~7 MB) is also provided.
 
 ## Command line
 
@@ -82,7 +82,7 @@ Every command supports `--json` (pure JSON on stdout, logs on stderr) and `--lan
 
 Chinese and English. Follows the system language by default; switchable under Settings → Language, effective immediately.
 
-> **Honest note about the current state:** the interface shell, the insert-and-run flow, and the orchestration conclusions are fully bilingual. A long tail is still Chinese-only — the report HTML, most CLI output, the safety-check details, and some error descriptions. Those fall back to **Chinese, never to blank**: the translation tables are exhaustive `match` arms, so what's missing is wording, not branches. The remaining items are tracked item by item in the i18n change inside the private openspec repo.
+> **Honest note about the current state:** the interface, the insert-and-run flow, the orchestration conclusions and **the copy report** are fully bilingual. A long tail is still Chinese-only — most CLI output, the safety-check details, and some error descriptions. Those fall back to **Chinese, never to blank**: the translation tables are exhaustive `match` arms, so what's missing is wording, not branches.
 
 ## Build from source
 
@@ -99,7 +99,7 @@ Requires Rust 1.85+, Bun, Python 3, and the Windows MSVC build tools.
 ## Known boundaries
 
 - **Windows only.** The core is platform-agnostic and the macOS seams are left in place, but it hasn't been built.
-- **No update check.** V1 never goes online: no account, no telemetry, no auto-update, no background check. The cost is that you have to look for new versions yourself.
+- **Update checks are off by default and never auto-install.** No account, no telemetry, no background polling — even when enabled, it goes online only when you press "Check for updates". Finding a new version just tells you; installing is your call. Update packages are signed with the release key and verified offline against a public key compiled into the app.
 - **Phones over MTP are not a trustworthy backup path.** Android and iPhone appear as "portable devices" on Windows: no drive letter, not filesystem objects, no block-level verification, file sizes can be truncated to 32 bits, timestamps unreliable, ≥4 GB risky. Use an SD card or external SSD with a reader.
 - **iPhone transcodes HEIC/HEVC to JPEG/H.264 by default** before handing files to a PC (Settings → Apps → Photos → Transfer to Mac or PC). The transcode happens on the phone, so no copy path can avoid it — **under default settings what you get is not the original file.**
 - **Formatting is gated on VM acceptance.** It is the only capability that irreversibly destroys data; acceptance is not performed on the development machine.

@@ -331,6 +331,16 @@ export const zh = {
   "devices.nameWithKind": "{name}（{kind}）",
   "confirm.withCountdown": "{text}（{n}）",
   "app.diagnostics": "{where}：{message}",
+  "update.section": "更新",
+  "update.enable": "允许检查更新",
+  "update.enableHint": "默认关。开了也只在你点「检查更新」时才联网——没有后台轮询，不上报任何东西",
+  "update.check": "检查更新",
+  "update.checking": "正在检查…",
+  "update.upToDate": "已经是最新版本（{v}）",
+  "update.found": "有新版本 {v}（当前 {cur}）",
+  "update.install": "下载并安装",
+  "update.installing": "正在下载…",
+  "update.willRestart": "装完会重启程序。装不装你说了算，不会自动装。",
 } as const;
 
 export type Key = keyof typeof zh;

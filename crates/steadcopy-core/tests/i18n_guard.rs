@@ -213,3 +213,69 @@ fn scenario_i18n_locale_does_not_affect_decisions() {
     assert_ne!(a.summary(Locale::Zh), a.summary(Locale::En));
     assert_eq!(a.next_step(), b.next_step(), "出口判定也 MUST NOT 随语言变化");
 }
+
+// spec: i18n → Scenario: 英文输出无 CJK（报告 HTML）
+#[test]
+fn scenario_i18n_english_report_has_no_cjk() {
+    use steadcopy_core::engine::{hash_bytes, HashAlgorithm};
+    use steadcopy_core::ledger::{render_report, ReportInput};
+    use steadcopy_core::manifest::model::{ManifestEntry, SourceRef, VerifyState};
+    use steadcopy_core::manifest::Manifest;
+    use time::macros::datetime;
+
+    let at = datetime!(2026-08-11 09:00:00 UTC);
+    let mut m = Manifest::new(
+        SourceRef {
+            id: "vol-1".into(),
+            // 素材名本来就可能是中文，报告里出现它是**正确的**——
+            // 这里刻意全用英文，好让护栏只盯模板文案
+            display_name: "A7M4".into(),
+        },
+        "Wedding",
+        r"D:\media",
+        HashAlgorithm::Xxh64,
+        at,
+    );
+    m.entries.push(ManifestEntry {
+        relative_path: "DCIM/a.mp4".into(),
+        size: 1024,
+        source_hash: hash_bytes(HashAlgorithm::Xxh64, b"x"),
+        verify: VerifyState::NotVerified,
+        source_modified_at: None,
+        completed_at: at,
+        retries: 0,
+    });
+
+    let failures = [("DCIM/b.mp4".to_string(), "io error".to_string(), 2u32)];
+    let html = render_report(&ReportInput {
+        manifest: &m,
+        failures: &failures,
+        skipped: 3,
+        notices: &[],
+        elapsed_secs: Some(125),
+        generated_at: at,
+        audit: None,
+        lang: Locale::En,
+    });
+
+    // 报告是要拿给客户看的。英文报告里冒出一句中文，比界面上更尴尬
+    for line in html.lines() {
+        assert!(!has_cjk(line), "英文报告里混进了中文：{line}");
+    }
+    assert!(html.contains("lang=\"en\""), "html 的 lang 属性也要跟着变");
+    assert!(html.contains("Copy report"));
+
+    // 中文那版照旧
+    let zh = render_report(&ReportInput {
+        manifest: &m,
+        failures: &failures,
+        skipped: 3,
+        notices: &[],
+        elapsed_secs: Some(125),
+        generated_at: at,
+        audit: None,
+        lang: Locale::Zh,
+    });
+    assert!(has_cjk(&zh), "中文报告不该变成英文的");
+    assert!(zh.contains("lang=\"zh-CN\""));
+}

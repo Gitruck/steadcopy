@@ -4,7 +4,7 @@
   "name": "steadcopy",
   "license": "MIT"
  },
- "count": 380,
+ "count": 421,
  "packages": [
   {
    "name": "@babel/code-frame",
@@ -233,6 +233,20 @@
   {
    "name": "@tauri-apps/plugin-opener",
    "version": "2.5.4",
+   "license": "MIT OR Apache-2.0",
+   "repository": "",
+   "ecosystem": "npm"
+  },
+  {
+   "name": "@tauri-apps/plugin-process",
+   "version": "2.3.1",
+   "license": "MIT OR Apache-2.0",
+   "repository": "",
+   "ecosystem": "npm"
+  },
+  {
+   "name": "@tauri-apps/plugin-updater",
+   "version": "2.10.1",
    "license": "MIT OR Apache-2.0",
    "repository": "",
    "ecosystem": "npm"
@@ -599,6 +613,13 @@
    "version": "1.0.104",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/dtolnay/anyhow",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "atomic-waker",
+   "version": "1.1.2",
+   "license": "Apache-2.0 OR MIT",
+   "repository": "https://github.com/smol-rs/atomic-waker",
    "ecosystem": "rust"
   },
   {
@@ -1078,10 +1099,66 @@
    "ecosystem": "rust"
   },
   {
+   "name": "futures-channel",
+   "version": "0.3.33",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/rust-lang/futures-rs",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "futures-core",
+   "version": "0.3.33",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/rust-lang/futures-rs",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "futures-io",
+   "version": "0.3.33",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/rust-lang/futures-rs",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "futures-macro",
+   "version": "0.3.33",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/rust-lang/futures-rs",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "futures-sink",
+   "version": "0.3.33",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/rust-lang/futures-rs",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "futures-task",
+   "version": "0.3.33",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/rust-lang/futures-rs",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "futures-util",
+   "version": "0.3.33",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/rust-lang/futures-rs",
+   "ecosystem": "rust"
+  },
+  {
    "name": "generic-array",
    "version": "0.14.7",
    "license": "MIT",
    "repository": "https://github.com/fizyk20/generic-array.git",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "getrandom",
+   "version": "0.2.17",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/rust-random/getrandom",
    "ecosystem": "rust"
   },
   {
@@ -1114,14 +1191,14 @@
   },
   {
    "name": "hashbrown",
-   "version": "0.12.3",
+   "version": "0.17.1",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/rust-lang/hashbrown",
    "ecosystem": "rust"
   },
   {
    "name": "hashbrown",
-   "version": "0.17.1",
+   "version": "0.12.3",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/rust-lang/hashbrown",
    "ecosystem": "rust"
@@ -1159,6 +1236,48 @@
    "version": "1.5.0",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/hyperium/http",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "http-body",
+   "version": "1.1.0",
+   "license": "MIT",
+   "repository": "https://github.com/hyperium/http-body",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "http-body-util",
+   "version": "0.1.4",
+   "license": "MIT",
+   "repository": "https://github.com/hyperium/http-body",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "httparse",
+   "version": "1.10.1",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/seanmonstar/httparse",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "hyper",
+   "version": "1.11.0",
+   "license": "MIT",
+   "repository": "https://github.com/hyperium/hyper",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "hyper-rustls",
+   "version": "0.27.9",
+   "license": "Apache-2.0 OR ISC OR MIT",
+   "repository": "https://github.com/rustls/hyper-rustls",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "hyper-util",
+   "version": "0.1.20",
+   "license": "MIT",
+   "repository": "https://github.com/hyperium/hyper-util",
    "ecosystem": "rust"
   },
   {
@@ -1257,6 +1376,13 @@
    "version": "0.19.0",
    "license": "MIT",
    "repository": "https://github.com/bojand/infer",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "ipnet",
+   "version": "2.12.1",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/krisprice/ipnet",
    "ecosystem": "rust"
   },
   {
@@ -1383,6 +1509,13 @@
    "version": "0.3.17",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/hyperium/mime",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "minisign-verify",
+   "version": "0.2.5",
+   "license": "MIT",
+   "repository": "https://github.com/jedisct1/rust-minisign-verify",
    "ecosystem": "rust"
   },
   {
@@ -1666,10 +1799,24 @@
    "ecosystem": "rust"
   },
   {
+   "name": "reqwest",
+   "version": "0.13.4",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/seanmonstar/reqwest",
+   "ecosystem": "rust"
+  },
+  {
    "name": "rfd",
    "version": "0.16.0",
    "license": "MIT",
    "repository": "https://github.com/PolyMeilex/rfd",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "ring",
+   "version": "0.17.14",
+   "license": "Apache-2.0 AND ISC",
+   "repository": "https://github.com/briansmith/ring",
    "ecosystem": "rust"
   },
   {
@@ -1694,6 +1841,34 @@
    "ecosystem": "rust"
   },
   {
+   "name": "rustls",
+   "version": "0.23.43",
+   "license": "Apache-2.0 OR ISC OR MIT",
+   "repository": "https://github.com/rustls/rustls",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "rustls-pki-types",
+   "version": "1.15.1",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/rustls/pki-types",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "rustls-platform-verifier",
+   "version": "0.7.0",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/rustls/rustls-platform-verifier",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "rustls-webpki",
+   "version": "0.103.14",
+   "license": "ISC",
+   "repository": "https://github.com/rustls/webpki",
+   "ecosystem": "rust"
+  },
+  {
    "name": "same-file",
    "version": "1.0.6",
    "license": "Unlicense/MIT",
@@ -1702,14 +1877,14 @@
   },
   {
    "name": "schemars",
-   "version": "0.8.22",
+   "version": "1.2.2",
    "license": "MIT",
    "repository": "https://github.com/GREsau/schemars",
    "ecosystem": "rust"
   },
   {
    "name": "schemars",
-   "version": "1.2.2",
+   "version": "0.8.22",
    "license": "MIT",
    "repository": "https://github.com/GREsau/schemars",
    "ecosystem": "rust"
@@ -1869,6 +2044,13 @@
    "ecosystem": "rust"
   },
   {
+   "name": "slab",
+   "version": "0.4.12",
+   "license": "MIT",
+   "repository": "https://github.com/tokio-rs/slab",
+   "ecosystem": "rust"
+  },
+  {
    "name": "smallvec",
    "version": "1.15.2",
    "license": "MIT OR Apache-2.0",
@@ -1918,10 +2100,10 @@
    "ecosystem": "rust"
   },
   {
-   "name": "syn",
-   "version": "3.0.3",
-   "license": "MIT OR Apache-2.0",
-   "repository": "https://github.com/dtolnay/syn",
+   "name": "subtle",
+   "version": "2.6.1",
+   "license": "BSD-3-Clause",
+   "repository": "https://github.com/dalek-cryptography/subtle",
    "ecosystem": "rust"
   },
   {
@@ -1929,6 +2111,20 @@
    "version": "2.0.119",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/dtolnay/syn",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "syn",
+   "version": "3.0.3",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/dtolnay/syn",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "sync_wrapper",
+   "version": "1.0.2",
+   "license": "Apache-2.0",
+   "repository": "https://github.com/Actyx/sync_wrapper",
    "ecosystem": "rust"
   },
   {
@@ -2016,6 +2212,13 @@
    "ecosystem": "rust"
   },
   {
+   "name": "tauri-plugin-updater",
+   "version": "2.10.1",
+   "license": "Apache-2.0 OR MIT",
+   "repository": "https://github.com/tauri-apps/plugins-workspace",
+   "ecosystem": "rust"
+  },
+  {
    "name": "tauri-runtime",
    "version": "2.11.3",
    "license": "Apache-2.0 OR MIT",
@@ -2048,6 +2251,13 @@
    "version": "0.7.3",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/tauri-apps/winrt-notification",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "tempfile",
+   "version": "3.27.0",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/Stebalien/tempfile",
    "ecosystem": "rust"
   },
   {
@@ -2135,15 +2345,29 @@
    "ecosystem": "rust"
   },
   {
+   "name": "tokio-rustls",
+   "version": "0.26.4",
+   "license": "MIT OR Apache-2.0",
+   "repository": "https://github.com/rustls/tokio-rustls",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "tokio-util",
+   "version": "0.7.19",
+   "license": "MIT",
+   "repository": "https://github.com/tokio-rs/tokio",
+   "ecosystem": "rust"
+  },
+  {
    "name": "toml",
-   "version": "1.1.4+spec-1.1.0",
+   "version": "0.9.12+spec-1.1.0",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/toml-rs/toml",
    "ecosystem": "rust"
   },
   {
    "name": "toml",
-   "version": "0.9.12+spec-1.1.0",
+   "version": "1.1.4+spec-1.1.0",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/toml-rs/toml",
    "ecosystem": "rust"
@@ -2177,6 +2401,34 @@
    "ecosystem": "rust"
   },
   {
+   "name": "tower",
+   "version": "0.5.3",
+   "license": "MIT",
+   "repository": "https://github.com/tower-rs/tower",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "tower-http",
+   "version": "0.6.11",
+   "license": "MIT",
+   "repository": "https://github.com/tower-rs/tower-http",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "tower-layer",
+   "version": "0.3.3",
+   "license": "MIT",
+   "repository": "https://github.com/tower-rs/tower",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "tower-service",
+   "version": "0.3.3",
+   "license": "MIT",
+   "repository": "https://github.com/tower-rs/tower",
+   "ecosystem": "rust"
+  },
+  {
    "name": "tracing",
    "version": "0.1.44",
    "license": "MIT",
@@ -2202,6 +2454,13 @@
    "version": "0.24.2",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/tauri-apps/tray-icon",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "try-lock",
+   "version": "0.2.5",
+   "license": "MIT",
+   "repository": "https://github.com/seanmonstar/try-lock",
    "ecosystem": "rust"
   },
   {
@@ -2265,6 +2524,13 @@
    "version": "1.13.3",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/unicode-rs/unicode-segmentation",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "untrusted",
+   "version": "0.9.0",
+   "license": "ISC",
+   "repository": "https://github.com/briansmith/untrusted",
    "ecosystem": "rust"
   },
   {
@@ -2335,6 +2601,13 @@
    "version": "2.5.0",
    "license": "Unlicense/MIT",
    "repository": "https://github.com/BurntSushi/walkdir",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "want",
+   "version": "0.3.1",
+   "license": "MIT",
+   "repository": "https://github.com/seanmonstar/want",
    "ecosystem": "rust"
   },
   {
@@ -2507,14 +2780,14 @@
   },
   {
    "name": "windows-sys",
-   "version": "0.59.0",
+   "version": "0.60.2",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/microsoft/windows-rs",
    "ecosystem": "rust"
   },
   {
    "name": "windows-sys",
-   "version": "0.60.2",
+   "version": "0.59.0",
    "license": "MIT OR Apache-2.0",
    "repository": "https://github.com/microsoft/windows-rs",
    "ecosystem": "rust"
@@ -2639,6 +2912,13 @@
    "ecosystem": "rust"
   },
   {
+   "name": "zeroize",
+   "version": "1.9.0",
+   "license": "Apache-2.0 OR MIT",
+   "repository": "https://github.com/RustCrypto/utils",
+   "ecosystem": "rust"
+  },
+  {
    "name": "zerotrie",
    "version": "0.2.4",
    "license": "Unicode-3.0",
@@ -2657,6 +2937,13 @@
    "version": "0.11.3",
    "license": "Unicode-3.0",
    "repository": "https://github.com/unicode-org/icu4x",
+   "ecosystem": "rust"
+  },
+  {
+   "name": "zip",
+   "version": "4.6.1",
+   "license": "MIT",
+   "repository": "https://github.com/zip-rs/zip2.git",
    "ecosystem": "rust"
   },
   {

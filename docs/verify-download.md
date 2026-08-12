@@ -19,15 +19,28 @@ Get-FileHash .\稳拷_0.1.0_x64-setup.exe -Algorithm SHA256
 
 **一致才安装。** 不一致说明文件在传输中损坏，或者你拿到的不是官方构建——国内下载站二次打包是真实存在的事，请回官方渠道重新下载。
 
+## 两个安装包，选一个
+
+| | 大小 | 什么时候用 |
+|---|---|---|
+| `steadcopy_0.1.0_x64-setup.exe` | 4.1 MB | **默认选它。** 本机已有 WebView2 就直接装完；没有的话装的时候会去拉一下运行时 |
+| `steadcopy_0.1.0_x64-setup-offline.exe` | 206.7 MB | **片场没网、机器全新时选它。** WebView2 运行时整个打在包里，断网也能装 |
+
+Windows 11 与 Windows 10 22H2 自带 WebView2，绝大多数机器用精简版就够。
+
 ## 本次发布的校验码
 
 ```
-52b4565f3d57d98ad5c57277613d023c8ef377a634eb1e5ce842d637c9355724  稳拷_0.1.0_x64-setup.exe
-a332f82af73a561ecd4dfcb93bd06f2f1bd3874bb8f8108e641094adfcfce941  steadcopy-0.1.0-portable.zip
+339de6ad35248477bbc7fc3078896a20e499ea1a6a2d9ab8af6346c239986986  steadcopy_0.1.0_x64-setup.exe
+d70c67cddf4ebea895e5f8b6e8119db44610a81cdf04dbdde376fe09edc0647f  steadcopy_0.1.0_x64-setup-offline.exe
+4ec46ccadf737089db5e400290f460ea08d71fac21e87ba83a46b231fa2f033c  steadcopy-0.1.0-portable.zip
 ```
 
 以 `release/SHA256SUMS.txt` 为准，它由 `scripts/build-release.py` 在打包的同一次运行里生成，
 不是事后手抄的。
+
+旁边还有几个 `.exe.sig` 文件——那是给**更新器**验签用的，不用你手动核对。
+程序里编着配对的公钥，下载更新包之后会自动验；签名对不上就拒绝安装。
 
 ## 不要做的事
 
@@ -39,12 +52,14 @@ a332f82af73a561ecd4dfcb93bd06f2f1bd3874bb8f8108e641094adfcfce941  steadcopy-0.1.
 2. 校验码一致的话，向该安全厂商**提交误报反馈**（各家都有开发者/用户误报申报入口）；
 3. 同时可以在本项目的 issue 里说一声，方便我们主动去申报白名单。
 
-## 为什么安装包这么大
+## 为什么离线版那么大
 
-约 205 MB，因为把 **WebView2 运行时完整打进去了**。
+206 MB，因为把 **WebView2 运行时完整打进去了**。
 
 片场、外景、机房经常没网。安装一个备份工具时才发现「需要联网下载组件」是不可接受的，
-所以我们选择把体积背上。装完之后应用本体只有约 12 MB。
+所以离线版把体积背上了。装完之后应用本体只有约 12 MB。
+
+精简版只有 4 MB —— 它假设你的机器已经有 WebView2（Win11 与 Win10 22H2 都自带）。
 
 ## 便携版
 

@@ -41,3 +41,11 @@ desktop.ini
 # openspec/ 变回普通目录时仍有屏蔽。
 # 真正的硬闸是 .git/hooks/pre-commit（装法见 openspec/hooks/install.sh）。
 openspec/
+
+# 更新包签名私钥 —— **绝不进仓**。
+# 拿到它的人可以签出一个「合法」的更新包，让所有客户端静默安装任意程序。
+# 公钥编在 tauri.conf.json 里（那是公开的、也必须公开）；私钥只存两处：
+# 发布机本地，与 GitHub Actions 的 repository secret（TAURI_SIGNING_PRIVATE_KEY）。
+.updater-key
+.updater-key.pub
+*.key

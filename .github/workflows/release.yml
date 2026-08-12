@@ -1,0 +1,117 @@
+name: 发布
+
+# 打两个包并发上 GitHub Releases，顺带产更新器要的 latest.json。
+#
+# 触发：推一个 v* 标签，或在 Actions 页面手动跑（手动跑只出产物、不发布，用来试水）。
+#
+# 为什么是两个包：
+#   精简版  downloadBootstrapper —— 本机已有 WebView2 就直接装完，没有才去拉。约 10 MB。
+#   离线版  offlineInstaller     —— 运行时整个打进去，断网也能装。约 205 MB。
+# 片场没网是硬约束，所以离线版必须有；但为此让所有人都下 205 MB 又不合理，
+# 所以两个都给，下载页说清楚差别。
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 只构建、不发布
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # openspec 是私有 submodule，CI 拿不到也不需要——
+          # 它只装规格与决策台账，构建一行都用不上
+          submodules: false
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target\napp/src-tauri -> target"
+
+      - name: 装前端依赖
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      # 闸门排在编译之前：依赖里混进 GPL 系时，不该等二十分钟编译完才发现
+      - name: 许可闸门
+        run: python scripts/gen-licenses.py
+
+      - name: 安全轨测试
+        run: cargo test --workspace
+
+      - name: 静态检查
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings
+          cd app && ./node_modules/.bin/tsc --noEmit
+
+      - name: 编译命令行
+        run: cargo build --release -p steadcopy-cli
+
+      # ---- 精简版 ----
+      - name: 打包（精简版）
+        working-directory: app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: ./node_modules/.bin/tauri build
+
+      - name: 收走精简版产物
+        shell: bash
+        run: |
+          mkdir -p release
+          # 先搬走，否则第二次 build 会把同名文件盖掉
+          cp app/src-tauri/target/release/bundle/nsis/*.exe release/ 2>/dev/null || true
+          cp app/src-tauri/target/release/bundle/nsis/*.sig release/ 2>/dev/null || true
+          ls -la release/
+
+      # ---- 离线版 ----
+      - name: 打包（离线版）
+        working-directory: app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: ./node_modules/.bin/tauri build --config src-tauri/tauri.offline.conf.json
+
+      - name: 收走离线版产物 + 便携版 + 校验码
+        shell: bash
+        run: |
+          cp app/src-tauri/target/release/bundle/nsis/*.exe release/ 2>/dev/null || true
+          cp app/src-tauri/target/release/bundle/nsis/*.sig release/ 2>/dev/null || true
+          python scripts/package-extras.py
+          ls -la release/
+
+      - name: 生成 latest.json
+        shell: bash
+        run: python scripts/gen-latest-json.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steadcopy-${{ github.ref_name }}
+          path: release/
+          retention-days: 14
+
+      - name: 发布到 Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          # 草稿：产物先传上去，发布说明与门控结论由人补完再点发布。
+          # 门控清单 R1–R14 里有一半是机器测不了的（真机走查、虚拟机验收、
+          # 误报申报回执），自动发布等于跳过它们。
+          draft: true
+          generate_release_notes: true

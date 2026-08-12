@@ -24,6 +24,7 @@ import {
   type SinkSuggestion,
   type TaskRecord,
   type UnlistenFn,
+  type UpdateInfo,
 } from "./bridge";
 import { AdhocPanel, SinkBar } from "./adhoc";
 import { resolveLang, setLang, t } from "./i18n";
@@ -1536,6 +1537,19 @@ function SettingsPage({
         </div>
 
         <div className="panel">
+          <header>{t("update.section")}</header>
+          <div className="in col">
+            <Toggle
+              label={t("update.enable")}
+              hint={t("update.enableHint")}
+              checked={s.update_check}
+              onChange={(v) => save({ ...s, update_check: v })}
+            />
+            {s.update_check && <UpdatePanel onError={onError} />}
+          </div>
+        </div>
+
+        <div className="panel">
           <header>{t("settings.copy")}</header>
           <div className="in col">
             <Toggle
@@ -1830,6 +1844,63 @@ function About({ path, onError }: { path: string; onError: (e: string) => void }
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** 检查更新。**只有点了才联网**——这是「不联网」承诺仍然成立的方式。 */
+function UpdatePanel({ onError }: { onError: (e: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const [installing, setInstalling] = useState(false);
+
+  return (
+    <div className="col" style={{ gap: 8 }}>
+      <div className="row" style={{ gap: 8, alignItems: "center" }}>
+        <button
+          className="btn sm"
+          disabled={busy || installing}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              setInfo(await api.checkUpdate());
+            } catch (e) {
+              onError(String(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? t("update.checking") : t("update.check")}
+        </button>
+        {info && !info.available && (
+          <span className="small muted">{t("update.upToDate", { v: info.current })}</span>
+        )}
+      </div>
+      {info?.available && (
+        <div className="banner warn">
+          <div>{t("update.found", { v: info.version ?? "", cur: info.current })}</div>
+          {info.notes && <div className="small" style={{ marginTop: 4 }}>{info.notes}</div>}
+          <div className="small muted" style={{ marginTop: 4 }}>{t("update.willRestart")}</div>
+          <div style={{ marginTop: 8 }}>
+            <button
+              className="btn sm primary"
+              disabled={installing}
+              onClick={async () => {
+                setInstalling(true);
+                try {
+                  await api.installUpdate();
+                } catch (e) {
+                  onError(String(e));
+                  setInstalling(false);
+                }
+              }}
+            >
+              {installing ? t("update.installing") : t("update.install")}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
