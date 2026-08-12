@@ -27,6 +27,7 @@ import argparse
 import io
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -65,6 +66,32 @@ def git(*args, capture=True):
     return (r.stdout or "").strip()
 
 
+def preflight():
+    """推标签之前，先把 CI 会立刻卡住的那几件事在本地过一遍。
+
+    只查**又快又常错**的，不重跑整条流水线——那要二十分钟，本地跑一遍等于白等。
+    目前就一条：`bun install --frozen-lockfile`。
+
+    为什么是它：改 `package.json` 的依赖却忘了提交 `bun.lock`，本地毫无感觉
+    （本地 `bun install` 会顺手更新锁文件），CI 上却是**第一步就红**——
+    而那时候标签已经推出去了，得删标签重来。这一条已经发生过一次。
+    """
+    if not shutil.which("bun"):
+        print("   （没装 bun，跳过锁文件检查）")
+        return
+    app = os.path.join(ROOT, "app")
+    r = subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=app,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        raise SystemExit(
+            "锁文件与 package.json 对不上。\n"
+            "在 app/ 下跑一次 `bun install`，把改动后的 bun.lock 一起提交，再发版。\n"
+            "（CI 用 --frozen-lockfile，这是刻意的：锁文件能在 CI 上被悄悄改掉，"
+            "就等于依赖树可以在没人看的地方漂。）\n\n" + (r.stderr or r.stdout).strip()
+        )
+    print("   锁文件与 package.json 一致")
+
+
 def check():
     vs = read_versions()
     uniq = set(vs.values())
@@ -97,6 +124,8 @@ def main():
     ap.add_argument("version", nargs="?", help="新版本号，形如 0.1.1")
     ap.add_argument("--local", action="store_true", help="只改本地文件，不提交不打标签不推")
     ap.add_argument("--check", action="store_true", help="只检查三处版本号是否一致")
+    ap.add_argument("--retag", action="store_true",
+                    help="标签已存在时删掉重打。**只在那一版什么都没发出去时用**")
     args = ap.parse_args()
 
     if args.check or not args.version:
@@ -113,8 +142,20 @@ def main():
             print(dirty)
             raise SystemExit(1)
         if git("tag", "-l", tag):
-            raise SystemExit(f"标签 {tag} 已经存在。发过的版本号不能重发——"
-                             "改标签会让已经下载过的人对不上校验码。")
+            if not args.retag:
+                raise SystemExit(
+                    f"标签 {tag} 已经存在。\n"
+                    "**那一版已经有产物流出（Release 已发布 / 镜像已挂）的话，绝不能动它**——"
+                    "改标签会让已经下载过的人对不上校验码。发一个新的补丁版本。\n"
+                    "若那一版是 CI 直接失败、什么产物都没产出，删掉重打是干净的：加 --retag。"
+                )
+            print(f"--retag：删掉已存在的 {tag} 重打")
+            git("tag", "-d", tag, capture=False)
+            git("push", "origin", f":refs/tags/{tag}", capture=False)
+
+    if not args.local:
+        print("发版前检查")
+        preflight()
 
     print(f"改版本号 → {new}")
     old = bump(new)
