@@ -421,12 +421,22 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
     api.mapUnassign(l.id).then(setView, (e) => onError(String(e)));
   };
 
-  /** 光标下是哪个节点。用 elementFromPoint 而不是自己算 viewBox 逆变换：
-   *  它天然跟着真实渲染走，缩放平移都不用管；拖影 pointer-events:none 不会挡它。 */
+  /** 光标下是哪个节点。**纯几何判断**，不碰 DOM 命中测试：
+   *  第一版用 elementFromPoint，同一段代码在浏览器里全链路通过、
+   *  真机 WebView2 上却打不中——不跟环境差异耗，布局坐标本来就在手里
+   *  （laid.pos），getScreenCTM 把光标从视口坐标逆变换进 SVG 用户空间，
+   *  跟节点矩形做包含判断即可。缩放平移都在矩阵里，preserveAspectRatio 也是。 */
   const nodeUnderPoint = (cx: number, cy: number): string | null => {
-    const el = document.elementFromPoint(cx, cy);
-    const g = el?.closest?.("[data-node-id]");
-    return g ? (g as HTMLElement).getAttribute("data-node-id") : null;
+    const svg = svgRef.current;
+    const m = svg?.getScreenCTM();
+    if (!svg || !m) return null;
+    const pt = new DOMPoint(cx, cy).matrixTransform(m.inverse());
+    for (const [id, q] of laid.pos) {
+      if (pt.x >= q.x && pt.x <= q.x + NODE_W && pt.y >= q.y && pt.y <= q.y + NODE_H) {
+        return id;
+      }
+    }
+    return null;
   };
 
   useEffect(() => {
