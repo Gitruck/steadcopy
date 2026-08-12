@@ -24,3 +24,7 @@ time = { version = "0.3", features = ["formatting", "local-offset"] }
 tauri-plugin-single-instance = "2.4.3"
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-updater = "2.10.1"
+# 更新下载地址的主机白名单要按 URL 语义判定，不能用字符串前缀——
+# `api.ai-mcn.tv.attacker.com` 和 `api.ai-mcn.tv@attacker.com` 都以白名单主机开头。
+# 不是新依赖：tauri 与 updater 本来就把它编进来了，这里只是显式声明。
+url = "2"

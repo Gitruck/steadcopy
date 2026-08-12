@@ -51,12 +51,17 @@ jobs:
       - name: 许可闸门
         run: python scripts/gen-licenses.py
 
+      # app/src-tauri 是独立 workspace，根目录的 --workspace 扫不到它。
+      # 单列一行，否则它里头的测试（更新来源白名单等）永远不会跑。
       - name: 安全轨测试
-        run: cargo test --workspace
+        run: |
+          cargo test --workspace
+          cargo test --manifest-path app/src-tauri/Cargo.toml
 
       - name: 静态检查
         run: |
           cargo clippy --workspace --all-targets -- -D warnings
+          cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets -- -D warnings
           cd app && ./node_modules/.bin/tsc --noEmit
 
       - name: 编译命令行
@@ -67,35 +72,45 @@ jobs:
         working-directory: app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # 密钥本身没设口令，所以这里是空串而不是 secret——GitHub 不接受空值的 secret。
+          # 写成字面量也更诚实：空口令不是机密，假装它是只会让人以为多了一道防线。
+          # 真正的防线是「私钥只在发布机与这个 secret 里」。
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: ./node_modules/.bin/tauri build
 
+      # 收走 + 改 ASCII 名 + 验体积量级，与本地打包共用 build-release.py 里的同一段。
+      # **必须在打第二个之前收走**：两版的 productName 相同（不同就会被 Windows 当成
+      # 两个程序，用离线版的人一点更新会装出第二份），所以产物名一模一样，
+      # 只能靠「刚打完就收」来分辨。
       - name: 收走精简版产物
-        shell: bash
-        run: |
-          mkdir -p release
-          # 先搬走，否则第二次 build 会把同名文件盖掉
-          cp app/src-tauri/target/release/bundle/nsis/*.exe release/ 2>/dev/null || true
-          cp app/src-tauri/target/release/bundle/nsis/*.sig release/ 2>/dev/null || true
-          ls -la release/
+        run: python scripts/collect-bundle.py slim
 
       # ---- 离线版 ----
+      - name: 清空产物目录
+        run: python scripts/collect-bundle.py clear
+
       - name: 打包（离线版）
         working-directory: app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # 密钥本身没设口令，所以这里是空串而不是 secret——GitHub 不接受空值的 secret。
+          # 写成字面量也更诚实：空口令不是机密，假装它是只会让人以为多了一道防线。
+          # 真正的防线是「私钥只在发布机与这个 secret 里」。
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: ./node_modules/.bin/tauri build --config src-tauri/tauri.offline.conf.json
 
       - name: 收走离线版产物 + 便携版 + 校验码
         shell: bash
         run: |
-          cp app/src-tauri/target/release/bundle/nsis/*.exe release/ 2>/dev/null || true
-          cp app/src-tauri/target/release/bundle/nsis/*.sig release/ 2>/dev/null || true
+          python scripts/collect-bundle.py offline
           python scripts/package-extras.py
           ls -la release/
 
-      - name: 生成 latest.json
+      # 两份清单：GitHub 端点一份、自有镜像一份。除 url 外完全相同——
+      # 尤其是签名，因为两边挂的是同一批字节。
+      # 镜像那份不在这里上传：NAS 在内网，托管跑器够不着。发布后在发布机上跑
+      # `python scripts/publish-mirror.py --dir <下载下来的产物>`。
+      - name: 生成两份 latest.json
         shell: bash
         run: python scripts/gen-latest-json.py
 
@@ -109,7 +124,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*
+          # 镜像清单不上传到 Releases：同一个地址挂两份清单会让人搞不清哪份是权威的
+          files: |
+            release/*.exe
+            release/*.sig
+            release/*.zip
+            release/latest.json
+            release/SHA256SUMS.txt
+            release/THIRD-PARTY-LICENSES.md
           # 草稿：产物先传上去，发布说明与门控结论由人补完再点发布。
           # 门控清单 R1–R14 里有一半是机器测不了的（真机走查、虚拟机验收、
           # 误报申报回执），自动发布等于跳过它们。

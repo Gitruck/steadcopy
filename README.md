@@ -46,7 +46,19 @@
 
 ## 下载与校验
 
-从 [GitHub Releases](https://github.com/steadcopy/steadcopy/releases) 或官网下载。
+两个安装包，选一个：
+
+| | 大小 | 什么时候用 |
+|---|---|---|
+| `steadcopy_<版本>_x64-setup.exe` | 约 4 MB | **默认选它。** 本机已有 WebView2 就直接装完；没有的话装的时候会去拉一下运行时 |
+| `steadcopy_<版本>_x64-setup-offline.exe` | 约 206 MB | **片场没网、机器全新时选它。** WebView2 运行时整个打在包里，断网也能装 |
+
+两个是**同一个产品的两种装法**，装完完全一样，也可以互相覆盖升级。另有便携版 zip（约 7 MB），解压即用、数据落在自己目录里。
+
+下载地址：
+
+- [GitHub Releases](https://github.com/Gitruck/steadcopy/releases)
+- 国内直连镜像：`https://api.ai-mcn.tv:9000/broadcast/steadcopy/`（与 Releases 是同一批字节，校验码一致）
 
 > **本版本未购买代码签名证书**，首次运行 Windows 会提示「未知发布者」。这是预期行为。
 > 请按下面的方法核对校验码来确认来源。**任何时候都不要为了运行本程序去关闭系统防护或杀毒软件。**
@@ -54,7 +66,7 @@
 核对方法（PowerShell）：
 
 ```powershell
-Get-FileHash .\稳拷_0.1.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\steadcopy_0.1.0_x64-setup.exe -Algorithm SHA256
 ```
 
 把结果与 Releases 页面公示的值逐字比对，一致才安装。

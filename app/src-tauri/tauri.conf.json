@@ -61,6 +61,7 @@
       "active": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ2NTE5NzBCMTUxOUE0NUEKUldSYXBCa1ZDNWRSUmxUNlNaQ05aYm9icks2bDNZejBhKzZLSnk4emFySUI2dGo4Y2wwekJYSUYK",
       "endpoints": [
+        "https://api.ai-mcn.tv:9000/broadcast/steadcopy/latest.json",
         "https://github.com/Gitruck/steadcopy/releases/latest/download/latest.json"
       ],
       "windows": {

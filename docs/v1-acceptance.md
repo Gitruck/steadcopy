@@ -6,13 +6,20 @@
 
 | 文件 | 大小 | 说明 |
 |---|---|---|
-| `稳拷_0.1.0_x64-setup.exe` | 205.6 MB | 安装包，per-user 安装，内置离线 WebView2 运行时 |
-| `steadcopy-0.1.0-portable.zip` | 5.7 MB | 便携版，解压即用，含命令行 |
+| `steadcopy_0.1.0_x64-setup.exe` | 4.1 MB | 精简版安装包，per-user 安装，靠系统自带的 WebView2 |
+| `steadcopy_0.1.0_x64-setup-offline.exe` | 206.7 MB | 离线版安装包，WebView2 运行时随包，断网也能装 |
+| `steadcopy-0.1.0-portable.zip` | 7.1 MB | 便携版，解压即用，含命令行 |
 | `SHA256SUMS.txt` | — | 校验码，与 `docs/verify-download.md` 同源 |
-| `THIRD-PARTY-LICENSES.md` | — | 372 个依赖，无 GPL 系 |
+| `THIRD-PARTY-LICENSES.md` | — | 345 个 Rust 依赖 + 76 个前端依赖，无 GPL 系 |
 
-自动化现状：**317 个安全轨测试全绿**，`clippy -D warnings` 干净（含自定义的静默降级禁令），
+两个安装包**是同一个产品的两种装法**，productName 相同，差别只有 WebView2 装法一处。
+名字不同会被 Windows 当成两个程序——离线版用户收到更新（更新指向精简版）就会装出第二份。
+
+自动化现状：**安全轨测试全绿**（根 workspace 319 条 + app 壳 5 条），`clippy -D warnings` 干净（含自定义的静默降级禁令），
 `tsc --noEmit` 干净，场景覆盖自检通过。危险轨 3 条 `#[ignore]`，**从未在本机执行过**。
+
+`app/src-tauri` 是独立 workspace，根目录的 `cargo test --workspace` 扫不到它（更新端点白名单那几条测试住在那儿），
+要另跑一遍 `--manifest-path app/src-tauri/Cargo.toml` 的 test 与 clippy——CI 与 `scripts/build-release.py` 都已经补上。
 
 ---
 
@@ -24,7 +31,7 @@
 ### 1. 核对来源再装
 
 ```powershell
-Get-FileHash .\稳拷_0.1.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\steadcopy_0.1.0_x64-setup.exe -Algorithm SHA256
 ```
 
 与 `release/SHA256SUMS.txt` 逐字比对。会提示未知发布者，这是预期的（没买签名证书）。
@@ -140,14 +147,17 @@ D-002（格式化保留原文件系统与卷标）、D-003（安全链拦下系�
 
 ### 刻意没做（是选择，不是遗漏）
 
-- **不联网**。没有账号、没有遥测、没有自动更新，也没有后台更新检查。代价是新版本要你自己去看。
-  这条有结构性保证：依赖树里根本没有 HTTP 客户端，有测试盯着。
+- **不自动更新**。更新检查默认**关**；打开之后也只在你按下「检查更新」时联网一次，
+  没有账号、没有遥测、没有后台轮询；查到新版本只告知，**装不装要你再点一次**。
+  下载地址还要过一遍编译期写死的主机白名单，不在白名单直接拒。
+  引擎与命令行那一侧仍有结构性保证：依赖树里根本没有 HTTP 客户端，有测试盯着——
+  联网能力只存在于界面侧的更新器里，且默认不启用。
 - **不做 mac 版**。架构位置留着了（平台 trait + 非 Windows 返回 `Unsupported`），但没做。
 - **不做批量格式化**，不做低级格式化 / 分区表操作 / 安全擦除。
 - **手机不做可信备份**。安卓与 iPhone 在 Windows 上走 MTP：没有块级校验、文件大小可能被 32 位截断、
   时间戳不可信。建议手机用 SD 卡或外置 SSD 走读卡器。
   另外 iPhone 默认会把 HEIC/HEVC 转码后再传给电脑——**默认设置下你拿到的本来就不是原文件**。
-- **便携版不含 WebView2 运行时**。安装包含（离线完整版），便携版靠系统自带。
+- **精简版与便携版都不含 WebView2 运行时**。只有离线版内置，其余两种靠系统自带。
 
 ### 还没做（V1 的边界，下一轮的候选）
 

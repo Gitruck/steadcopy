@@ -17,14 +17,19 @@
 
 ```bash
 cargo test --workspace
+cargo test --manifest-path app/src-tauri/Cargo.toml
 ```
 
 要求：0 failed。危险轨的 `#[ignore]` 计数与 `docs/danger-tests.md` 登记数一致（多出来的说明有人偷偷加了危险测试）。
+
+`app/src-tauri` 是**独立 workspace**，根目录的 `--workspace` 扫不到它——更新端点白名单那几条测试就住在那里，
+少跑第二条命令等于这一门根本没验。
 
 ## R2 静态检查全绿
 
 ```bash
 cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets -- -D warnings
 cd app && ./node_modules/.bin/tsc --noEmit
 ```
 
@@ -95,7 +100,8 @@ python scripts/gen-licenses.py
 
 ## R10 离线安装验证
 
-断网机器上安装并启动成功，安装过程中没有任何联网下载（WebView2 运行时随包）。
+用**离线版**安装包在断网机器上安装并启动成功，安装过程中没有任何联网下载（WebView2 运行时随包）。
+精简版这一门不适用——它本来就假设机器已有运行时，没有时会去拉。
 
 ## R11 便携版验证
 
@@ -124,12 +130,54 @@ python scripts/gen-checksums.py
 - 按 `docs/antivirus-whitelist.md` 完成误报申报，记录申报单号与回执
 - 一台从未装过本程序的干净 Windows 机器，从下载 → 校验码核对 → 安装 → 首次运行 → 完成一次拷贝，全程走通
 
+## R15 两版安装包的 productName 相同
+
+两个包是**同一个产品的两种装法**，唯一差别是 `webviewInstallMode`。名字一旦不同，NSIS 会装到不同目录、
+注册不同的卸载项——而更新清单指向的是精简版，**离线版用户点一次更新就会装出第二份**，
+两份各自监听插卡，谁也不知道自己在用哪一个。
+
+```bash
+grep '!define PRODUCTNAME' app/src-tauri/target/release/nsis/x64/installer.nsi
+```
+
+这个文件每趟 build 都会覆盖，所以**要在两趟之间各看一次**（`scripts/build-release.py` 打完精简版接着打离线版）。
+两次输出必须一字不差。也可以在同一台机器上先装离线版再装精简版，确认安装目录与「应用和功能」里始终只有一项、
+只有一个卸载入口。
+
+另外确认 `tauri.offline.conf.json` 里**没有** `productName`——它是增量合并的，多写一行就分家。
+
+## R16 自有镜像发布并回读确认
+
+镜像是 `plugins.updater.endpoints` 的**第一个**端点，GitHub 是兜底。国内常连不上 GitHub，
+而**仓库私有期间 GitHub 那个端点对匿名客户端直接 404**——那时候镜像是唯一真正能用的更新源，
+它没挂好等于所有人都收不到更新。
+
+镜像目录挂在 NAS 上（`T:\web\broadcast\steadcopy` ↔ `https://api.ai-mcn.tv:9000/broadcast/steadcopy`），
+GitHub 托管跑器够不着，**这一步只能在发布机本地跑**：
+
+```bash
+# 产物用 CI 打的那批，不要本地重编——签名是对具体那批字节签的。
+# --zip 直接收 Actions 页面下载下来的产物包，不用自己解压（少一步就少一次「解错目录」）
+python scripts/publish-mirror.py --zip <从 Actions 下载的产物包>
+```
+
+三条都要有结论：
+
+- **推上去了**：脚本先拿 `SHA256SUMS.txt` 核对源目录，再把两个安装包、两个 `.sig`
+  与 `latest.mirror.json`（改名为 `latest.json`）复制过去
+- **回读确认**：脚本从 `https://api.ai-mcn.tv:9000/broadcast/steadcopy/latest.json` 取回清单并与刚发布的逐字比对，
+  再对安装包发一次 Range 请求确认真能下。复制成功不等于发布成功——目录可能没被 web 服务收录、可能有缓存，
+  而这一环断了只有客户端知道，客户端不会来告诉你
+- **与 Releases 同一批字节**：镜像上的安装包 SHA-256 与 `release/SHA256SUMS.txt`、与 Releases 页公示的一致。
+  `latest.json` 两份除 `url` 外完全相同，**签名必须相同**——不同就说明有一边是重编的，客户端下完会拒装
+
 ---
 
 ## 本版本的已知缺口
 
 发版前把这一节改成实际情况，并**原样抄进发布说明**。
 
-- **无更新检查**：V1 完全不联网，因此没有更新检查功能，也没有相应开关。新版本需用户自行到项目页面查看。这既满足「不静默更新」也满足「零遥测」，但代价是用户不会被告知新版本。
-- **便携版依赖系统 WebView2**：安装包内置离线 WebView2 运行时，便携版没有。Windows 11 与 Windows 10 22H2 自带；更旧的系统请用安装包。
+- **更新检查默认关闭**：有更新检查，但默认关，且只在用户按下按钮时联网一次，查到也绝不自动安装。代价是默认状态下用户不会被告知新版本——这是拿「不静默更新 + 零遥测」换来的，不打算改。
+- **仓库私有期间只有镜像端点可用**：GitHub 那个端点对匿名客户端 404，兜底端点实际上是哑的。开源之前，R16 一旦没做，更新链就是断的。
+- **精简版与便携版依赖系统 WebView2**：只有离线版安装包内置运行时。Windows 11 与 Windows 10 22H2 自带；更旧的系统请用离线版安装包。
 - **格式化能力**：以 R5 的验收结论为准。

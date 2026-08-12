@@ -3659,6 +3659,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "time",
+ "url",
 ]
 
 [[package]]

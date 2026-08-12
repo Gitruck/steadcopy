@@ -49,3 +49,11 @@ openspec/
 .updater-key
 .updater-key.pub
 *.key
+
+# 发布操作手册 —— 自己看的，不入库。
+# 里头有内网路径（NAS 映射盘）、私钥存放位置、GitHub 账号上的操作步骤，
+# 都是主仓将来公开时不该跟着走的东西。
+# 用户看的下载与校验说明在 README.md 与 docs/verify-download.md；
+# 发布门控清单 docs/release-checklist.md 是入库的（它是「不发」的依据，
+# 属于工程约束，不含内网信息）。
+发布手册.md

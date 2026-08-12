@@ -8,7 +8,7 @@
 在下载目录打开 PowerShell，执行：
 
 ```powershell
-Get-FileHash .\稳拷_0.1.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\steadcopy_0.1.0_x64-setup.exe -Algorithm SHA256
 ```
 
 把输出的 `Hash` 与下面三处**任一**公示的值逐字比对（三处内容一致）：
@@ -28,7 +28,21 @@ Get-FileHash .\稳拷_0.1.0_x64-setup.exe -Algorithm SHA256
 
 Windows 11 与 Windows 10 22H2 自带 WebView2，绝大多数机器用精简版就够。
 
+## 两个下载地址，哪个快用哪个
+
+- GitHub Releases —— https://github.com/Gitruck/steadcopy/releases
+- 国内直连镜像 —— https://api.ai-mcn.tv:9000/broadcast/steadcopy/
+
+镜像上挂的是同一次构建产出的**同一批字节**（不是在别的机器上重编一遍），
+所以两边的校验码一致，上面那套核对方法对镜像同样适用。
+从镜像下的包对不上校验码，就跟从 Releases 下的对不上一样——不要装。
+
 ## 本次发布的校验码
+
+> **发版时必须整段替换成正式构建的值。** 下面这三行是本机试打时留下的，
+> 而每次编译产出的字节都不同（Rust 编译不是逐字节可复现的）——照抄旧值会让
+> 所有认真核对的人都对不上，然后他们只能猜是自己下坏了还是包被人动过。
+> 正式值从发布那次流水线产物里的 `SHA256SUMS.txt` 原样复制（门控 R12）。
 
 ```
 339de6ad35248477bbc7fc3078896a20e499ea1a6a2d9ab8af6346c239986986  steadcopy_0.1.0_x64-setup.exe
@@ -36,8 +50,7 @@ d70c67cddf4ebea895e5f8b6e8119db44610a81cdf04dbdde376fe09edc0647f  steadcopy_0.1.
 4ec46ccadf737089db5e400290f460ea08d71fac21e87ba83a46b231fa2f033c  steadcopy-0.1.0-portable.zip
 ```
 
-以 `release/SHA256SUMS.txt` 为准，它由 `scripts/build-release.py` 在打包的同一次运行里生成，
-不是事后手抄的。
+以 `SHA256SUMS.txt` 为准，它由打包流水线在出包的同一次运行里生成，不是事后手抄的。
 
 旁边还有几个 `.exe.sig` 文件——那是给**更新器**验签用的，不用你手动核对。
 程序里编着配对的公钥，下载更新包之后会自动验；签名对不上就拒绝安装。
@@ -63,7 +76,7 @@ d70c67cddf4ebea895e5f8b6e8119db44610a81cdf04dbdde376fe09edc0647f  steadcopy_0.1.
 
 ## 便携版
 
-`steadcopy-0.1.0-portable.zip`（约 6 MB）解压即用：数据全部落在同目录的 `data\` 里，
+`steadcopy-0.1.0-portable.zip`（约 7 MB）解压即用：数据全部落在同目录的 `data\` 里，
 不写注册表，整个文件夹拷到别的机器上照样能用，卸载就是删文件夹。便携版与安装版的数据
 是分开的，同一台机器上并存也互不影响。
 

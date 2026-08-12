@@ -48,13 +48,25 @@ steadcopy fills that gap. It carries no revenue expectations, which is why it ca
 
 ## Download and verify
 
-From [GitHub Releases](https://github.com/steadcopy/steadcopy/releases).
+Two installers, pick one:
+
+| | Size | When to use it |
+|---|---|---|
+| `steadcopy_<version>_x64-setup.exe` | ~4 MB | **The default.** Installs straight away if WebView2 is already present; otherwise it fetches the runtime during install |
+| `steadcopy_<version>_x64-setup-offline.exe` | ~206 MB | **No network on set, or a brand-new machine.** The WebView2 runtime is bundled in full, so it installs offline |
+
+They are **two ways of installing the same product** — identical once installed, and either one upgrades the other in place. A portable zip (~7 MB) is also available: unzip and run, with all data kept next to the executable.
+
+Where to get it:
+
+- [GitHub Releases](https://github.com/Gitruck/steadcopy/releases)
+- Mirror (better reachable from mainland China): `https://api.ai-mcn.tv:9000/broadcast/steadcopy/` — the same bytes as the Releases assets, same checksums
 
 > **This build is not code-signed**, so Windows will warn about an unknown publisher on first run. That is expected.
 > Verify the checksum below to confirm where the file came from. **Never turn off your security software in order to run this program.**
 
 ```powershell
-Get-FileHash .\稳拷_0.1.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\steadcopy_0.1.0_x64-setup.exe -Algorithm SHA256
 ```
 
 Compare against the value published on the Releases page. Install only if they match.

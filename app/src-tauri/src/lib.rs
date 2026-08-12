@@ -6,6 +6,12 @@
 //! 铁律：**前端零业务逻辑。** 本文件只做「门面命令 → core」的桥接与事件转发，
 //! 路径渲染 / 增量判定 / 空间计算 / 哈希 / 安全检查一律在 core 里算。
 
+// 纯护栏模块：不参与运行期，只在测试里钉住「两版安装包必须是同一个产品」。
+// 它防的那个 bug（productName 分叉 ⇒ 装出第二份）没法靠人记住。
+#[cfg(test)]
+mod flavor_guard;
+mod update_origin;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -1681,6 +1687,9 @@ fn open_report_file(app: AppHandle, manifest_path: String) -> Result<(), String>
 // - **更新地址写死在编译期。** 不从配置读——更新地址一旦可配，
 //   谁能改配置文件谁就能让所有客户端静默安装任意程序。
 // - **验签由官方 updater 用编译进程序的公钥做。** 私钥只在发布机与 CI secret 里。
+// - **下载地址还要再过一遍主机白名单。** 见 `update_origin`：验签发生在下载之后，
+//   而清单里的 url 来自网络。不先卡主机，一个被劫持的端点就能让程序去请求任意地址——
+//   包是装不上（验签会拒），但「谁在什么时候查更新」已经泄给第三方了。
 
 #[derive(Serialize)]
 struct UpdateInfo {
@@ -1732,8 +1741,14 @@ async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
     let cfg = load_cfg()?;
+    let lang = Locale::resolve(&cfg.settings.locale);
     if !cfg.settings.update_check {
-        return Err("更新检查已关闭".into());
+        return Err(lang
+            .pick(
+                "更新检查已在设置里关闭",
+                "Update checking is turned off in settings",
+            )
+            .to_string());
     }
     // 有任务在跑就不装——装更新会重启程序，正在拷的卡就断在半路
     let running = app
@@ -1743,7 +1758,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         .map(|r| r.clone())
         .map_err(|_| "任务状态锁异常")?;
     if !running.is_empty() {
-        return Err(steadcopy_core::i18n::Locale::resolve(&cfg.settings.locale)
+        return Err(lang
             .pick(
                 "有任务正在进行，等它跑完再更新——装更新会重启程序",
                 "A task is running. Wait for it to finish — installing an update restarts the app",
@@ -1753,8 +1768,21 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
 
     let updater = app.updater().map_err(|e| e.to_string())?;
     let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
-        return Err("已经是最新版本".into());
+        return Err(lang
+            .pick("已经是最新版本", "Already on the latest version")
+            .to_string());
     };
+
+    // 下载之前先卡主机。清单来自网络，`download_url` 是清单说了算的——
+    // 端点被劫持时它可以是任意地址。验签虽然最终会拒掉坏包，但那是**请求发出之后**的事。
+    let url = update.download_url.as_str();
+    if !update_origin::is_allowed_update_url(url) {
+        return Err(lang.pick(
+            "更新包的下载地址不在允许的来源里，已拒绝——这通常意味着更新清单被篡改过",
+            "The update download address is not an allowed origin; refused. This usually means the update manifest was tampered with",
+        ).to_string());
+    }
+
     // 验签由 updater 用编译进程序的公钥做；签名对不上这里就会失败
     update
         .download_and_install(|_, _| {}, || {})
