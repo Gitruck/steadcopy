@@ -514,21 +514,40 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
     );
   };
 
-  // ---- 键盘：Tab 加子节点、F2 改名、Delete 删 ----
+  // ---- 键盘：Tab 加节点（未选中=顶层、选中=子节点）、F2 改名、Delete 删 ----
+  //
+  // 监听挂在 window 而不是画布 div 上。原先靠 tabIndex 让画布自己收键，
+  // 但点节点时指针捕获在 SVG 上、焦点并不落到画布，Tab 就被浏览器当成
+  // 焦点切换吃掉了——「按了没反应」。挂 window 后不依赖焦点；
+  // 正在输入框里打字（改名、模板名、别的页面元素）一律不劫持。
+  const selRef = useRef(sel);
+  const startAddRef = useRef(startAdd);
+  const startRenameRef = useRef(startRename);
+  const removeNodeRef = useRef(removeNode);
+  selRef.current = sel;
+  startAddRef.current = startAdd;
+  startRenameRef.current = startRename;
+  removeNodeRef.current = removeNode;
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (renaming || adding) return;
-    if (e.key === "Tab") {
-      e.preventDefault();
-      startAdd(sel);
-    } else if (e.key === "F2") {
-      e.preventDefault();
-      if (sel) startRename(sel);
-    } else if (e.key === "Delete") {
-      e.preventDefault();
-      if (sel) removeNode(sel);
-    }
-  };
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (renaming || adding) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.closest("input, textarea, select") || el.isContentEditable)) return;
+      if (e.key === "Tab") {
+        e.preventDefault();
+        startAddRef.current(selRef.current);
+      } else if (e.key === "F2") {
+        e.preventDefault();
+        if (selRef.current) startRenameRef.current(selRef.current);
+      } else if (e.key === "Delete") {
+        e.preventDefault();
+        if (selRef.current) removeNodeRef.current(selRef.current);
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [renaming, adding]);
 
   // 幽灵输入框的落点：新节点出现在它将要归属的那一列的下方空白处
   const ghostPos = useMemo((): Pos | null => {
@@ -551,7 +570,7 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
         )}
         <div className="r">
           <button className="btn sm" disabled={!ready} onClick={() => startAdd(sel)}>
-            {t("map.addNode")}
+            {sel ? t("map.addChild") : t("map.addNode")}
           </button>
           <button
             className="btn sm"
@@ -741,7 +760,7 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                 ))}
               </div>
 
-              <div className="map-canvas" ref={wrapRef} tabIndex={0} onKeyDown={onKeyDown}>
+              <div className="map-canvas" ref={wrapRef}>
                 <svg
                   ref={svgRef}
                   viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.w / aspect}`}

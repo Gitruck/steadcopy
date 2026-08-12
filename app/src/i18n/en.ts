@@ -359,10 +359,11 @@ export const en: Record<Key, string> = {
     "Node names accept the same {项目}{日期}{设备} placeholders as path templates; they render into real folder names at dispatch time.",
   "map.addFirst": "Add the first node",
   "map.addNode": "Add node",
+  "map.addChild": "Add child",
   "map.toTop": "Move to top level",
   "map.center": "Center",
   "map.hintKeys":
-    "Double-click/F2 rename · Tab add child · Delete remove · drag node to re-parent · click a device name on a line to disconnect it · wheel zoom · drag blank space to pan",
+    "Tab adds a node (top-level when nothing is selected, child of the selection otherwise) · double-click/F2 rename · Delete remove · drag onto another node to re-parent · click a device name on a line to disconnect · wheel zoom · drag empty space to pan",
   "map.newNamePlaceholder": "Folder name; placeholders like {项目}{日期}{设备} are allowed",
   "map.deleteConfirm":
     "Delete \"{name}\" and its whole subtree? Only the map changes — folders on disk are untouched.",
