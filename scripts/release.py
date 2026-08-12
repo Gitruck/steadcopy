@@ -178,7 +178,12 @@ def main():
         print("已取消。文件已经改了，要还原就 git checkout -- .")
         return
 
-    git("commit", "-am", f"发布 {new}", capture=False)
+    # 版本号可能本来就已经是这个（比如 --retag 重打，版本号上一趟就改好了）。
+    # 那种情况下 `git commit` 会因为「没有可提交的改动」失败——不是错误，跳过即可。
+    if git("status", "--porcelain"):
+        git("commit", "-am", f"发布 {new}", capture=False)
+    else:
+        print("版本号已经是目标值，没有可提交的改动——直接打标签")
     git("tag", tag, capture=False)
     git("push", "origin", "HEAD", tag, capture=False)
 
