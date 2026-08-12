@@ -1,10 +1,14 @@
-//! 人读（中文）与机读（`--json`）双输出。
+//! 人读与机读（`--json`）双输出。
 //!
 //! 规范：`openspec/changes/add-steadcopy-core/specs/cli-driver/spec.md`
 //! → Requirement: 人读与机读双输出 / 退出码契约
 //!
 //! 铁律：`--json` 时 **stdout 只出 JSON**，一切人读日志与进度走 stderr，
 //! 否则自动化侧没法直接 `| jq`。
+//!
+//! 人读那一路跟随 `--lang`：core 已经产成句的直接取用，命令行自己的短语走 [`w`]，
+//! 需要插值的整句走 `wf!`。机读那一路**不随语言变**——JSON 的键与枚举值是契约，
+//! 跟着界面语言动，脚本第二天就崩了。
 
 use serde::Serialize;
 use std::sync::OnceLock;
@@ -140,6 +144,7 @@ impl Emitter {
         }
     }
 
+    /// `result` 是**机读代码**，不随语言变；`message` 是已经成句的人话。
     pub fn finished_empty(&self, result: &'static str, message: &str) {
         if self.json {
             self.out(&EmptyJson {
@@ -161,10 +166,24 @@ impl Emitter {
 
     pub fn watch_ready(&self, c: &steadcopy_core::config::Config, path: &str) {
         let enabled = c.presets.iter().filter(|p| p.enabled).count();
-        eprintln!("稳拷正在守候插卡…（Ctrl-C 退出）");
-        eprintln!("  项目 {} 个 · 启用的预设 {} 条 · 已记忆设备 {} 个",
-            c.projects.len(), enabled, c.devices.len());
-        eprintln!("  配置：{path}");
+        eprintln!(
+            "{}",
+            w(
+                "稳拷正在守候插卡…（Ctrl-C 退出）",
+                "steadcopy is watching for cards... (Ctrl-C to quit)"
+            )
+        );
+        eprintln!(
+            "  {}",
+            wf!(
+                "项目 {} 个 · 启用的预设 {} 条 · 已记忆设备 {} 个",
+                "{} project(s) · {} preset(s) enabled · {} device(s) remembered",
+                c.projects.len(),
+                enabled,
+                c.devices.len()
+            )
+        );
+        eprintln!("  {}{path}", w("配置：", "Config: "));
     }
 
     pub fn arrival(&self, o: &steadcopy_core::preset::ArrivalOutcome) {
@@ -175,13 +194,24 @@ impl Emitter {
             A::InsufficientSpace { .. } => "✗",
             _ => "·",
         };
-        eprintln!("
-{mark} {}", o.summary(lang()));
+        eprintln!("\n{mark} {}", o.summary(lang()));
         if let A::NeedsClassification { device_id, .. } = o {
-            eprintln!("    指认：steadcopy device set-kind \"{device_id}\" camera");
+            // 出路要能直接抄进终端，所以命令本身不翻，只翻前面的引导词
+            eprintln!(
+                "    {}steadcopy device set-kind \"{device_id}\" camera",
+                w("指认：", "Identify: ")
+            );
         }
         if let A::Planned { plan, .. } = o {
-            eprintln!("    待拷 {} 个 · {}", plan.files.len(), human_bytes(plan.total_bytes()));
+            eprintln!(
+                "    {}",
+                wf!(
+                    "待拷 {} 个 · {}",
+                    "{} file(s) to copy · {}",
+                    plan.files.len(),
+                    human_bytes(plan.total_bytes())
+                )
+            );
             for d in &plan.destinations {
                 eprintln!("    → {}", d.landing_dir.display());
             }
@@ -189,43 +219,111 @@ impl Emitter {
     }
 
     pub fn projects(&self, c: &steadcopy_core::config::Config) {
-        if self.json { self.out(&c.projects); return; }
-        if c.projects.is_empty() { println!("还没有项目。用 `steadcopy project add <名称> -d <目的地>` 建一个"); return; }
+        if self.json {
+            self.out(&c.projects);
+            return;
+        }
+        if c.projects.is_empty() {
+            println!(
+                "{}",
+                w(
+                    "还没有项目。用 `steadcopy project add <名称> -d <目的地>` 建一个",
+                    "No projects yet. Create one with `steadcopy project add <name> -d <destination>`"
+                )
+            );
+            return;
+        }
         for p in &c.projects {
-            let cur = if c.current_project.as_deref() == Some(p.id.as_str()) { " ← 当前" } else { "" };
+            let cur = if c.current_project.as_deref() == Some(p.id.as_str()) {
+                w(" ← 当前", " <- current")
+            } else {
+                ""
+            };
             println!("{}  {}{}", p.id, p.name, cur);
             for d in &p.destinations {
-                println!("    {} {}  模板 {}", if d.enabled { "☑" } else { "☐" }, d.root.display(), d.template);
+                println!(
+                    "    {} {}  {}{}",
+                    if d.enabled { "☑" } else { "☐" },
+                    d.root.display(),
+                    w("模板 ", "template "),
+                    d.template
+                );
             }
         }
     }
 
     pub fn presets(&self, c: &steadcopy_core::config::Config) {
-        if self.json { self.out(&c.presets); return; }
-        if c.presets.is_empty() { println!("还没有预设。用 `steadcopy preset add <名称> --matches kind:camera` 配一条"); return; }
+        if self.json {
+            self.out(&c.presets);
+            return;
+        }
+        if c.presets.is_empty() {
+            println!(
+                "{}",
+                w(
+                    "还没有预设。用 `steadcopy preset add <名称> --matches kind:camera` 配一条",
+                    "No presets yet. Add one with `steadcopy preset add <name> --matches kind:camera`"
+                )
+            );
+            return;
+        }
         for p in &c.presets {
-            let proj = p.project_id.as_ref()
+            let proj = p
+                .project_id
+                .as_ref()
                 .and_then(|id| c.project(id))
                 .map(|x| x.name.clone())
-                .unwrap_or_else(|| "当前项目".into());
-            println!("{} {}  匹配 {} → 项目「{}」 校验 {}",
+                .unwrap_or_else(|| w("当前项目", "current project").to_string());
+            let verify = if p.verify {
+                w("开", "on")
+            } else {
+                w("关", "off")
+            };
+            println!(
+                "{} {}  {}",
                 if p.enabled { "☑" } else { "☐" },
-                p.name, p.matcher.describe(lang()), proj,
-                if p.verify { "开" } else { "关" });
+                p.name,
+                wf!(
+                    "匹配 {} → 项目「{}」 校验 {}",
+                    "matches {} -> project \"{}\" · verify {}",
+                    p.matcher.describe(lang()),
+                    proj,
+                    verify
+                )
+            );
         }
     }
 
     pub fn device_records(&self, c: &steadcopy_core::config::Config) {
-        if self.json { self.out(&c.devices); return; }
-        if c.devices.is_empty() { println!("记忆库还是空的。插一张卡，稳拷会记住它"); return; }
-        let (ignored, active): (Vec<_>, Vec<_>) = c.devices.iter()
+        if self.json {
+            self.out(&c.devices);
+            return;
+        }
+        if c.devices.is_empty() {
+            println!(
+                "{}",
+                w(
+                    "记忆库还是空的。插一张卡，稳拷会记住它",
+                    "Nothing remembered yet. Plug a card in and steadcopy will remember it"
+                )
+            );
+            return;
+        }
+        let (ignored, active): (Vec<_>, Vec<_>) = c
+            .devices
+            .iter()
             .partition(|d| d.kind == steadcopy_core::device::DeviceKind::Ignored);
         for d in &active {
             println!("{:<10} {:<20} {}", d.kind.label(lang()), d.display_name(), d.id);
         }
         if !ignored.is_empty() {
-            println!("
-已忽略（插上不会打扰，可用 device set-kind 取消）");
+            println!(
+                "\n{}",
+                w(
+                    "已忽略（插上不会打扰，可用 device set-kind 取消）",
+                    "Ignored (they will not interrupt you; undo with device set-kind)"
+                )
+            );
             for d in &ignored {
                 println!("{:<10} {:<20} {}", d.kind.label(lang()), d.display_name(), d.id);
             }
@@ -237,7 +335,7 @@ impl Emitter {
             self.out(r);
             return;
         }
-        println!("格式化前置检查 · {device}");
+        println!("{} · {device}", w("格式化前置检查", "Pre-format checks"));
         for c in &r.checks {
             println!("  {} {}  {}", if c.passed { "✓" } else { "✗" }, c.id, c.detail);
         }
@@ -248,22 +346,34 @@ impl Emitter {
             self.out(&vols);
             return;
         }
-        println!("本机卷");
+        println!("{}", w("本机卷", "Volumes on this machine"));
         for v in vols {
-            let src = if v.can_be_source(&[]) { "可作为源" } else { "—" };
-            let sys = if v.is_system { " · 系统盘" } else { "" };
+            let src = if v.can_be_source(&[]) {
+                w("可作为源", "usable as source")
+            } else {
+                "—"
+            };
+            let sys = if v.is_system {
+                w(" · 系统盘", " · system disk")
+            } else {
+                ""
+            };
             println!(
                 "  {:<28} {:>10} / {:<10} {:<12} {:<9} {}{}",
                 v.display_name(),
                 human_bytes(v.free_bytes),
                 human_bytes(v.total_bytes),
                 v.file_system,
-                v.bus_type.label(),
+                v.bus_type.label(lang()),
                 src,
                 sys
             );
             if !v.fingerprints.is_empty() {
-                println!("      设备推测：{}", v.fingerprints.join("、"));
+                println!(
+                    "      {}{}",
+                    w("设备推测：", "Looks like: "),
+                    v.fingerprints.join(w("、", ", "))
+                );
             }
         }
     }
@@ -288,20 +398,42 @@ impl Emitter {
             });
             return;
         }
-        println!("扫描结果");
+        println!("{}", w("扫描结果", "Scan result"));
         if !r.fingerprints.is_empty() {
-            println!("  设备推测：{}", r.fingerprints.join("、"));
+            println!(
+                "  {}{}",
+                w("设备推测：", "Looks like: "),
+                r.fingerprints.join(w("、", ", "))
+            );
         }
         println!(
-            "  文件 {} 个 · {}",
-            r.file_count(),
-            human_bytes(r.total_bytes())
+            "  {}",
+            wf!(
+                "文件 {} 个 · {}",
+                "{} file(s) · {}",
+                r.file_count(),
+                human_bytes(r.total_bytes())
+            )
         );
         if r.junk_excluded > 0 {
-            println!("  已排除系统垃圾 {} 个", r.junk_excluded);
+            println!(
+                "  {}",
+                wf!(
+                    "已排除系统垃圾 {} 个",
+                    "excluded {} system junk file(s)",
+                    r.junk_excluded
+                )
+            );
         }
         if r.filtered_out > 0 {
-            println!("  被类型过滤排除 {} 个", r.filtered_out);
+            println!(
+                "  {}",
+                wf!(
+                    "被类型过滤排除 {} 个",
+                    "excluded {} file(s) by type filter",
+                    r.filtered_out
+                )
+            );
         }
         if list {
             for f in &r.files {
@@ -341,32 +473,57 @@ impl Emitter {
             return;
         }
 
-        println!("任务计划");
+        println!("{}", w("任务计划", "Task plan"));
         println!(
-            "  本次待拷 {} 个文件 · {}（已跳过 {} 个）",
-            p.files.len(),
-            human_bytes(p.total_bytes()),
-            p.skipped.len()
+            "  {}",
+            wf!(
+                "本次待拷 {} 个文件 · {}（已跳过 {} 个）",
+                "{} file(s) to copy · {} ({} skipped)",
+                p.files.len(),
+                human_bytes(p.total_bytes()),
+                p.skipped.len()
+            )
         );
         for (i, d) in p.destinations.iter().enumerate() {
-            println!("  目的地 {}：{}", i + 1, d.landing_dir.display());
+            println!(
+                "  {}",
+                wf!(
+                    "目的地 {}：{}",
+                    "Destination {}: {}",
+                    i + 1,
+                    d.landing_dir.display()
+                )
+            );
             let avail = d
                 .available_bytes
                 .map(human_bytes)
-                .unwrap_or_else(|| "未知".into());
+                .unwrap_or_else(|| w("未知", "unknown").into());
             let verdict = match d.sufficient() {
-                Some(true) => "空间充足",
-                Some(false) => "空间不足",
-                None => "空间无法确认",
+                Some(true) => w("空间充足", "enough space"),
+                Some(false) => w("空间不足", "not enough space"),
+                // 「查不到」独立于「够/不够」，不折叠进任何一边
+                None => w("空间无法确认", "space could not be determined"),
             };
             println!(
-                "    需要 {} · 可用 {} · {verdict}",
-                human_bytes(d.required_bytes),
-                avail
+                "    {}",
+                wf!(
+                    "需要 {} · 可用 {} · {}",
+                    "needs {} · available {} · {}",
+                    human_bytes(d.required_bytes),
+                    avail,
+                    verdict
+                )
             );
         }
         for n in &notices {
-            self.note_line(&format!("  ⚠ 历史清单不可读（{n}），本次执行全量拷贝"));
+            self.note_line(&format!(
+                "  ⚠ {}",
+                wf!(
+                    "历史清单不可读（{}），本次执行全量拷贝",
+                    "The previous manifest is unreadable ({}), so this run copies everything",
+                    n
+                )
+            ));
         }
     }
 
@@ -429,7 +586,7 @@ impl Emitter {
                     reason,
                 } => {
                     end_line(&mut line_pending);
-                    eprintln!("  ✗ {relative_path}：{reason}");
+                    eprintln!("  ✗ {relative_path}{}{reason}", w("：", ": "));
                 }
                 StageEvent::Notice(msg) => {
                     end_line(&mut line_pending);
@@ -468,29 +625,53 @@ impl Emitter {
 
         eprintln!();
         if r.cancelled {
-            println!("任务已取消");
+            println!("{}", w("任务已取消", "Task cancelled"));
         } else if failures.is_empty() {
             println!(
-                "拷贝完成：{} 个文件 · {} · 全部校验通过",
-                r.copied_count(),
-                human_bytes(r.bytes_copied)
+                "{}",
+                wf!(
+                    "拷贝完成：{} 个文件 · {} · 全部校验通过",
+                    "Copy finished: {} file(s) · {} · all verified",
+                    r.copied_count(),
+                    human_bytes(r.bytes_copied)
+                )
             );
         } else {
             // 有失败时 MUST NOT 用「完成」作为主表述
             println!(
-                "部分失败：成功 {} 个，失败 {} 个",
-                r.copied_count(),
-                failures.len()
+                "{}",
+                wf!(
+                    "部分失败：成功 {} 个，失败 {} 个",
+                    "Partly failed: {} succeeded, {} failed",
+                    r.copied_count(),
+                    failures.len()
+                )
             );
         }
         if r.skipped_count() > 0 {
-            println!("  已跳过 {} 个（此前已拷并校验通过）", r.skipped_count());
+            println!(
+                "  {}",
+                wf!(
+                    "已跳过 {} 个（此前已拷并校验通过）",
+                    "{} skipped (already copied and verified)",
+                    r.skipped_count()
+                )
+            );
         }
         for f in &failures {
-            println!("  ✗ {}（重试 {} 次）：{}", f.path, f.retries, f.reason);
+            println!(
+                "  ✗ {}",
+                wf!(
+                    "{}（重试 {} 次）：{}",
+                    "{} (retried {}x): {}",
+                    f.path,
+                    f.retries,
+                    f.reason
+                )
+            );
         }
         for m in &r.manifests {
-            println!("  凭证：{}", m.display());
+            println!("  {}{}", w("凭证：", "Manifest: "), m.display());
         }
     }
 
@@ -503,7 +684,7 @@ impl Emitter {
             let p = path.display().to_string();
             self.out(&R { report: &p });
         } else {
-            println!("  报告：{}", path.display());
+            println!("  {}{}", w("报告：", "Report: "), path.display());
         }
     }
 
@@ -513,28 +694,74 @@ impl Emitter {
             return;
         }
         let c = r.counts();
-        println!("复验结果（算法 {}）", r.algorithm);
-        println!("  一致 {}   已移动 {}   丢失 {}   新增 {}", c.intact, c.moved, c.missing, c.added);
+        println!(
+            "{}",
+            wf!(
+                "复验结果（算法 {}）",
+                "Re-verification result (algorithm {})",
+                r.algorithm
+            )
+        );
+        println!(
+            "  {}",
+            wf!(
+                "一致 {}   已移动 {}   丢失 {}   新增 {}",
+                "intact {}   moved {}   missing {}   added {}",
+                c.intact,
+                c.moved,
+                c.missing,
+                c.added
+            )
+        );
         if !r.complete {
-            println!("  ⚠ 结果不完整（复验被中断）");
+            println!(
+                "  ⚠ {}",
+                w(
+                    "结果不完整（复验被中断）",
+                    "The result is incomplete (re-verification was interrupted)"
+                )
+            );
         }
         if r.unverified_at_copy > 0 {
             println!(
-                "  ⚠ 其中 {} 个条目在拷贝时未做校验，可信度较低",
-                r.unverified_at_copy
+                "  ⚠ {}",
+                wf!(
+                    "其中 {} 个条目在拷贝时未做校验，可信度较低",
+                    "{} of these entries were not verified at copy time, so they are less trustworthy",
+                    r.unverified_at_copy
+                )
             );
         }
         for m in &r.missing {
-            println!("  ✗ 丢失：{}（期望 {}）", m.relative_path, m.expected_hash);
+            println!(
+                "  ✗ {}",
+                wf!(
+                    "丢失：{}（期望 {}）",
+                    "Missing: {} (expected {})",
+                    m.relative_path,
+                    m.expected_hash
+                )
+            );
         }
         for m in &r.moved {
-            println!("  → 已移动：{} → {}", m.from, m.to);
+            println!(
+                "  → {}{} → {}",
+                w("已移动：", "Moved: "),
+                m.from,
+                m.to
+            );
         }
         for a in &r.added {
-            println!("  + 新增：{}", a.relative_path);
+            println!("  + {}{}", w("新增：", "Added: "), a.relative_path);
         }
         if r.is_data_intact() {
-            println!("  数据完好——清单记录的内容全部找得到");
+            println!(
+                "  {}",
+                w(
+                    "数据完好——清单记录的内容全部找得到",
+                    "Data is intact — everything the manifest records was found"
+                )
+            );
         }
     }
 }
@@ -545,16 +772,32 @@ impl Emitter {
 /// 不是可变全局状态。用 `OnceLock` 而不是 `static mut` 是为了让这一点在类型上成立。
 static LANG: OnceLock<steadcopy_core::i18n::Locale> = OnceLock::new();
 
-/// 启动时定一次语言。`--lang` 优先于配置。
-pub fn set_lang(explicit: Option<&str>) {
-    let setting = explicit.map(str::to_string).unwrap_or_else(|| {
+/// 启动时定一次语言。
+///
+/// `--lang zh|en` 是显式指定；`--lang auto`（默认值）的含义是**这次不指定**——
+/// 先问配置里的 `Settings.locale`，配置里也是 `auto` 才去问系统。
+/// 配置读不出来（首次运行 / 文件损坏）时按 `auto` 走：语言选错最多是显示问题，
+/// 为它挡住一次拷卡不划算。
+pub fn set_lang(explicit: &str) {
+    let setting = if explicit == steadcopy_core::i18n::LOCALE_AUTO {
         steadcopy_core::config::load()
             .map(|c| c.settings.locale.clone())
             .unwrap_or_else(|_| steadcopy_core::i18n::LOCALE_AUTO.to_string())
-    });
+    } else {
+        explicit.to_string()
+    };
     let _ = LANG.set(steadcopy_core::i18n::Locale::resolve(&setting));
 }
 
 pub fn lang() -> steadcopy_core::i18n::Locale {
     *LANG.get_or_init(|| steadcopy_core::i18n::Locale::resolve(steadcopy_core::i18n::LOCALE_AUTO))
+}
+
+/// 本次语言下的一个短语。
+///
+/// 这里只放**命令行自己的**文案。core 已经产成句的（编排结论、错误描述、报告模板）
+/// 一律直接取用——在这儿再译一遍，同一句话就有了两份定义，迟早漂移。
+/// 需要插值的整句走 `wf!`。
+pub fn w(zh: &'static str, en: &'static str) -> &'static str {
+    lang().pick(zh, en)
 }

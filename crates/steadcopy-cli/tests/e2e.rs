@@ -80,6 +80,10 @@ fn today() -> String {
     format!("{:04}-{:02}-{:02}", n.year(), n.month() as u8, n.day())
 }
 
+/// 断言中文文案的用例都显式钉 `--lang zh`。
+///
+/// 不钉的话，这些断言在系统语言是英文的机器上会红——而那是**测试**不稳，
+/// 不是产品坏了。语言是这批用例的输入之一，就该写进命令行。
 fn copy_args(e: &Env) -> Vec<String> {
     vec![
         "copy".into(),
@@ -90,6 +94,8 @@ fn copy_args(e: &Env) -> Vec<String> {
         "测试项目".into(),
         "--device".into(),
         "测试卡".into(),
+        "--lang".into(),
+        "zh".into(),
     ]
 }
 
@@ -104,7 +110,7 @@ fn scenario_cli_driver_full_flow_without_gui() {
     let e = env();
 
     // scan
-    let o = run(&["scan", &e.card.display().to_string()]);
+    let o = run(&["scan", &e.card.display().to_string(), "--lang", "zh"]);
     assert_eq!(code(&o), 0, "扫描应成功");
 
     // plan：零副作用
@@ -219,10 +225,42 @@ fn scenario_cli_driver_json_stdout_is_pure() {
 #[test]
 fn scenario_cli_driver_human_output_is_chinese() {
     let e = env();
-    let o = run(&["scan", &e.card.display().to_string()]);
+    let o = run(&["scan", &e.card.display().to_string(), "--lang", "zh"]);
     let s = stdout(&o);
     assert!(s.contains("扫描结果"));
     assert!(s.contains("文件"));
+}
+
+// spec: → Requirement: locale 的确定与切换 → Scenario: 命令行支持单次调用的覆盖参数
+#[test]
+fn scenario_cli_driver_lang_switch_changes_runtime_output() {
+    let e = env();
+
+    // 同一条命令，只换 --lang，运行期输出整段换语言
+    let zh = stdout(&run(&["scan", &e.card.display().to_string(), "--lang", "zh"]));
+    let en = stdout(&run(&["scan", &e.card.display().to_string(), "--lang", "en"]));
+    assert!(zh.contains("扫描结果"), "{zh}");
+    assert!(en.contains("Scan result"), "{en}");
+    assert!(!en.contains("扫描结果"), "英文输出里还留着中文标题：{en}");
+
+    // 拷贝这一路也要换：结论、报告都跟着走
+    let mut args = copy_args(&e);
+    // copy_args 尾部钉的是 zh，改成 en（--lang 是最后一项的值）
+    let last = args.len() - 1;
+    args[last] = "en".into();
+    let o = run_owned(&args);
+    assert_eq!(code(&o), 0, "{}", String::from_utf8_lossy(&o.stderr));
+    let s = stdout(&o);
+    assert!(s.contains("Copy finished"), "{s}");
+    assert!(!s.contains("拷贝完成"), "英文输出里还留着中文结论：{s}");
+
+    // 报告与命令行同一份语言设置——报告是要拿给客户看的
+    let html =
+        std::fs::read_to_string(manifest_of(&e.landing).with_extension("html")).expect("读报告");
+    assert!(html.contains("Copy report"), "报告没跟着换语言");
+    assert!(!html.contains("拷卡报告"));
+    // 项目名与素材名是**数据**，本来就可能是中文，出现在英文报告里是对的
+    assert!(html.contains("测试项目"));
 }
 
 #[test]
@@ -242,7 +280,7 @@ fn scenario_cli_driver_usage_error_on_bad_template() {
 
 #[test]
 fn scenario_cli_driver_missing_source_is_reported() {
-    let o = run(&["scan", "Z:/绝对不存在的路径"]);
+    let o = run(&["scan", "Z:/绝对不存在的路径", "--lang", "zh"]);
     assert_ne!(code(&o), 0);
     assert!(String::from_utf8_lossy(&o.stderr).contains("不存在"));
 }
@@ -258,6 +296,8 @@ fn scenario_cli_driver_report_can_be_regenerated_from_manifest() {
         &mpath.display().to_string(),
         "-o",
         &target.display().to_string(),
+        "--lang",
+        "zh",
     ]);
     assert_eq!(code(&o), 0);
     assert!(target.exists());

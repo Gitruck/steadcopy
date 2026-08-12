@@ -14,12 +14,16 @@
     steadcopy_<版本>_x64-setup-offline.exe  离线版安装包（约 206 MB，运行时打在包里）
     *.exe.sig                               更新器验签用的分离签名
     steadcopy-<版本>-portable.zip           便携版（解压即用，数据落在自己目录里）
-    latest.json / latest.mirror.json        更新清单（GitHub 一份、自有镜像一份）
     SHA256SUMS.txt                          校验码，三处公示以它为准
     THIRD-PARTY-LICENSES.md                 第三方依赖许可清单
 
 两个安装包**是同一个产品的两种装法**：productName 相同，差别只在 webviewInstallMode。
 不能让它们的 productName 不同——那样 Windows 会当成两个程序，装出两份。
+
+**不产更新清单。** `latest.json` / `latest.mirror.json` 由 `scripts/gen-latest-json.py` 在
+CI 里生成，因为清单里的签名是对**发出去的那批字节**签的，而本地这一趟只是自己看看。
+真要在本地凑一份完整产物（比如 CI 挂了要应急出一版），跑完本脚本再手动跑一次
+`python scripts/gen-latest-json.py`。
 """
 
 import hashlib
@@ -120,7 +124,7 @@ def main():
         env={"STEADCOPY_BUILD_TIME": stamp})
 
     step(5, total, "打包桌面应用与安装包（精简版 + 离线版）")
-    os.makedirs(RELEASE, exist_ok=True)
+    clear_release()
     # 精简版：downloadBootstrapper。本机已有 WebView2 就直接装完，没有才去拉
     clear_bundle()
     run([node_bin("tauri"), "build"], cwd=APP,
@@ -230,6 +234,29 @@ def ascii_name(f, v, flavor):
     """
     suffix = ".exe.sig" if f.endswith(".sig") else ".exe"
     return f"steadcopy_{v}_x64-setup{'-offline' if flavor == 'offline' else ''}{suffix}"
+
+
+def clear_release():
+    """开工前清空 release/。
+
+    不清的后果是真的：上一趟的产物留在里头，`checksums()` 会把它一并算进
+    SHA256SUMS.txt（它是按目录枚举的），而 `publish-mirror.py` 不带参数时默认
+    就发这个目录——于是**上一个版本、甚至改配置之前打的包**会被原样推上镜像。
+    校验码还都对得上，因为清单和包是自洽的，只是自洽在错的那批字节上。
+
+    整个目录搬走而不是删掉：万一里头有还没归档的东西，人还能捞回来。
+    """
+    if not os.path.isdir(RELEASE):
+        os.makedirs(RELEASE, exist_ok=True)
+        return
+    leftovers = [f for f in os.listdir(RELEASE) if not f.startswith("_")]
+    if leftovers:
+        stale = os.path.join(RELEASE, "_stale")
+        shutil.rmtree(stale, ignore_errors=True)
+        os.makedirs(stale, exist_ok=True)
+        for f in leftovers:
+            shutil.move(os.path.join(RELEASE, f), os.path.join(stale, f))
+        print(f"   上一趟的 {len(leftovers)} 个产物已挪进 release/_stale/")
 
 
 def clear_bundle():

@@ -19,6 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::device::Volume;
+use crate::i18n::Locale;
 use crate::manifest::Manifest;
 
 /// 可移除性的判定结论。
@@ -34,12 +35,31 @@ pub enum Removability {
 }
 
 /// 判定失败的原因。**任何一种都走拒绝分支。**
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemovabilityError {
-    /// 底层查询报错
-    QueryFailed(String),
+    /// 底层查不出这个卷所在设备的总线类型
+    QueryFailed,
     /// 查询成功但没有可判定的信息
     Indeterminate,
+}
+
+impl RemovabilityError {
+    /// 拒绝理由，跟随语言。
+    ///
+    /// 两条都落在「查不到 = 不安全」上——措辞刻意不留「可能可以」的缝，
+    /// 这是前身在 G1 上出事的那一处。
+    pub const fn describe(self, lang: Locale) -> &'static str {
+        match self {
+            RemovabilityError::QueryFailed => lang.pick(
+                "无法确认这是不是可移除介质（查不到总线类型），出于安全拒绝",
+                "Could not confirm this is removable media (bus type unavailable) — refusing, to be safe",
+            ),
+            RemovabilityError::Indeterminate => lang.pick(
+                "无法确认这是不是可移除介质，出于安全拒绝",
+                "Could not confirm this is removable media — refusing, to be safe",
+            ),
+        }
+    }
 }
 
 /// 积极证明一个卷是否可移除。
@@ -56,9 +76,7 @@ pub fn removability(vol: &Volume) -> Result<Removability, RemovabilityError> {
         // 积极反证：内置总线
         BusType::Nvme | BusType::Sata | BusType::Scsi => Ok(Removability::ProvablyFixed),
         // 查不到 / 说不清 —— **不是「可能可以」，是「不知道」**
-        BusType::Unknown => Err(RemovabilityError::QueryFailed(
-            "无法查询该卷所在设备的总线类型".into(),
-        )),
+        BusType::Unknown => Err(RemovabilityError::QueryFailed),
         // 外接分支已在上面返回，此处只剩不可判定的
         _ => Err(RemovabilityError::Indeterminate),
     }
@@ -112,12 +130,16 @@ pub struct BackupEvidence {
 ///
 /// `current_files` 是卡上**现在**的文件相对路径集合（由扫描得到）。
 /// `destination_roots` 是全部已配置目的地的根。
+///
+/// `lang` **只决定 `detail` 怎么写**。每一条的 `passed` 都由上面那些判据算出来，
+/// 没有一处读 `lang`——安全结论随界面语言变，是这个模块最不能出的事。
 pub fn check_safety(
     vol: &Volume,
     destination_roots: &[std::path::PathBuf],
     device_busy: bool,
     evidence: Option<&BackupEvidence>,
     current_files: &[String],
+    lang: Locale,
 ) -> SafetyReport {
     let mut checks = Vec::new();
 
@@ -126,30 +148,34 @@ pub fn check_safety(
         Ok(Removability::Provable) if !vol.is_system => CheckResult {
             id: "G1".into(),
             passed: true,
-            detail: format!("已确认为可移除介质（{} 总线）", vol.bus_type.label()),
+            detail: match lang {
+                Locale::Zh => format!("已确认为可移除介质（{} 总线）", vol.bus_type.label(lang)),
+                Locale::En => {
+                    format!("Confirmed removable media ({} bus)", vol.bus_type.label(lang))
+                }
+            },
         },
         Ok(Removability::Provable) => CheckResult {
             id: "G1".into(),
             passed: false,
-            detail: "这是系统盘".into(),
+            detail: lang.pick("这是系统盘", "This is the system disk").into(),
         },
         Ok(Removability::ProvablyFixed) => CheckResult {
             id: "G1".into(),
             passed: false,
-            detail: format!("这是本机固定盘（{} 总线）", vol.bus_type.label()),
+            detail: match lang {
+                Locale::Zh => format!("这是本机固定盘（{} 总线）", vol.bus_type.label(lang)),
+                Locale::En => format!(
+                    "This is an internal fixed disk ({} bus)",
+                    vol.bus_type.label(lang)
+                ),
+            },
         },
+        // 查不到就是不安全——不给「可能可以」留缝
         Err(e) => CheckResult {
             id: "G1".into(),
             passed: false,
-            // 查不到就是不安全——不给「可能可以」留缝
-            detail: match e {
-                RemovabilityError::QueryFailed(m) => {
-                    format!("无法确认这是不是可移除介质（{m}），出于安全拒绝")
-                }
-                RemovabilityError::Indeterminate => {
-                    "无法确认这是不是可移除介质，出于安全拒绝".into()
-                }
-            },
+            detail: e.describe(lang).into(),
         },
     };
     checks.push(g1);
@@ -160,10 +186,17 @@ pub fn check_safety(
         id: "G2".into(),
         passed: !is_dest,
         detail: if is_dest {
-            "这个卷是已配置的备份目的地".into()
+            lang.pick(
+                "这个卷是已配置的备份目的地",
+                "This volume is a configured backup destination",
+            )
         } else {
-            "不是任何已配置的目的地".into()
-        },
+            lang.pick(
+                "不是任何已配置的目的地",
+                "Not one of the configured destinations",
+            )
+        }
+        .into(),
     });
 
     // G3：设备上没有任务在跑
@@ -171,17 +204,25 @@ pub fn check_safety(
         id: "G3".into(),
         passed: !device_busy,
         detail: if device_busy {
-            "该设备上还有任务在进行".into()
+            lang.pick(
+                "该设备上还有任务在进行",
+                "A task is still running on this device",
+            )
         } else {
-            "设备空闲".into()
-        },
+            lang.pick("设备空闲", "The device is idle")
+        }
+        .into(),
     });
 
     // G4：有覆盖当前全部内容的、已校验通过的备份
     let (g4_passed, g4_detail, backup_task_id) = match evidence {
         None => (
             false,
-            "找不到这张卡已完成且校验通过的备份记录".to_string(),
+            lang.pick(
+                "找不到这张卡已完成且校验通过的备份记录",
+                "No completed, verified backup of this card was found",
+            )
+            .to_string(),
             None,
         ),
         Some(ev) => {
@@ -197,26 +238,28 @@ pub fn check_safety(
                 .filter(|f| !covered.contains(f.as_str()))
                 .collect();
             if uncovered.is_empty() {
+                let n = covered.len();
+                let task = &ev.task_id;
                 (
                     true,
-                    format!(
-                        "已备份并校验通过（{} 个文件，{}）",
-                        covered.len(),
-                        ev.task_id
-                    ),
+                    match lang {
+                        Locale::Zh => format!("已备份并校验通过（{n} 个文件，{task}）"),
+                        Locale::En => format!("Backed up and verified ({n} files, {task})"),
+                    },
                     Some(ev.task_id.clone()),
                 )
             } else {
+                let n = uncovered.len();
+                // 举一个例子就够——列全了反而看不出重点
+                let sample = uncovered.first().map(|s| s.as_str()).unwrap_or("");
                 (
                     false,
-                    format!(
-                        "卡上有 {} 个文件不在已校验的备份里（例如 {}）",
-                        uncovered.len(),
-                        uncovered
-                            .first()
-                            .map(|s| s.as_str())
-                            .unwrap_or("")
-                    ),
+                    match lang {
+                        Locale::Zh => format!("卡上有 {n} 个文件不在已校验的备份里（例如 {sample}）"),
+                        Locale::En => format!(
+                            "{n} file(s) on the card are not in the verified backup (e.g. {sample})"
+                        ),
+                    },
                     None,
                 )
             }
@@ -239,11 +282,16 @@ pub const COUNTDOWN_DEFAULT_SECS: u32 = 30;
 pub const COUNTDOWN_MIN_SECS: u32 = 10;
 
 /// 校准用户配的倒计时秒数。低于下限 MUST 被拒绝。
-pub fn validate_countdown(secs: u32) -> Result<u32, String> {
+///
+/// `lang` 只影响被拒时那句话；下限判定与它无关。
+pub fn validate_countdown(secs: u32, lang: Locale) -> Result<u32, String> {
     if secs < COUNTDOWN_MIN_SECS {
-        return Err(format!(
-            "倒计时不能短于 {COUNTDOWN_MIN_SECS} 秒（你设的是 {secs} 秒）"
-        ));
+        return Err(match lang {
+            Locale::Zh => format!("倒计时不能短于 {COUNTDOWN_MIN_SECS} 秒（你设的是 {secs} 秒）"),
+            Locale::En => format!(
+                "The countdown cannot be shorter than {COUNTDOWN_MIN_SECS}s (you set {secs}s)"
+            ),
+        });
     }
     Ok(secs)
 }
@@ -252,6 +300,10 @@ pub fn validate_countdown(secs: u32) -> Result<u32, String> {
 ///
 /// 直接拿空卷标当确认串，「请输入卷标」会退化成「直接回车」——
 /// 摩擦归零，这一重确认等于不存在。无名卡在实际拍摄里很常见。
+///
+/// **这个词不随语言变**，哪怕界面是英文。它是 [`label_matches`] 的判据输入，
+/// 跟着语言变就意味着同一张卡在两种语言下要输不同的词——那是判定随 locale 变。
+/// 提示语会把它原样摆在屏幕上，照抄即可。
 pub const BLANK_LABEL_PHRASE: &str = "格式化";
 
 /// 这张卡要用户手输的确认串。有卷标就是卷标，没有就是固定词。
@@ -296,14 +348,32 @@ pub enum AutoFormatDecision {
 }
 
 impl AutoFormatDecision {
-    pub fn reason(&self) -> &'static str {
+    /// 「为什么没提议格式化」，跟随语言。
+    pub const fn reason(&self, lang: Locale) -> &'static str {
         match self {
-            AutoFormatDecision::Disabled => "「拷完自动格式化」未开启",
-            AutoFormatDecision::Cancelled => "任务被取消，不提议格式化",
-            AutoFormatDecision::HasFailures => "有文件拷贝失败，不提议格式化",
-            AutoFormatDecision::NotVerified => "本次未做读回校验，不提议格式化",
-            AutoFormatDecision::DestinationIncomplete => "有目的地未落下凭证，不提议格式化",
-            AutoFormatDecision::Propose => "全部目的地完成且全部校验通过",
+            AutoFormatDecision::Disabled => {
+                lang.pick("「拷完自动格式化」未开启", "\"Format after copy\" is off")
+            }
+            AutoFormatDecision::Cancelled => lang.pick(
+                "任务被取消，不提议格式化",
+                "The task was cancelled, so no format is proposed",
+            ),
+            AutoFormatDecision::HasFailures => lang.pick(
+                "有文件拷贝失败，不提议格式化",
+                "Some files failed to copy, so no format is proposed",
+            ),
+            AutoFormatDecision::NotVerified => lang.pick(
+                "本次未做读回校验，不提议格式化",
+                "No read-back verification this run, so no format is proposed",
+            ),
+            AutoFormatDecision::DestinationIncomplete => lang.pick(
+                "有目的地未落下凭证，不提议格式化",
+                "A destination has no manifest, so no format is proposed",
+            ),
+            AutoFormatDecision::Propose => lang.pick(
+                "全部目的地完成且全部校验通过",
+                "Every destination finished and everything verified",
+            ),
         }
     }
 }
@@ -342,6 +412,7 @@ pub fn decide_auto_format(
 mod tests {
     use super::*;
     use crate::device::{BusType, VolumeState};
+    use crate::i18n::Locale;
     use crate::engine::{hash_bytes, HashAlgorithm};
     use crate::manifest::model::{ManifestEntry, SourceRef, VerifyState};
     use std::path::PathBuf;
@@ -405,10 +476,10 @@ mod tests {
     fn scenario_format_card_query_failure_is_rejected() {
         let v = vol(BusType::Unknown, false);
         assert!(
-            matches!(removability(&v), Err(RemovabilityError::QueryFailed(_))),
+            matches!(removability(&v), Err(RemovabilityError::QueryFailed)),
             "查不到总线类型 MUST 是 Err，不能被折叠成「可移动」"
         );
-        let r = check_safety(&v, &[], false, None, &[]);
+        let r = check_safety(&v, &[], false, None, &[], Locale::Zh);
         let g1 = &r.checks[0];
         assert!(!g1.passed, "查询失败 MUST 判定为拒绝");
         assert!(g1.detail.contains("无法确认"), "{}", g1.detail);
@@ -424,7 +495,7 @@ mod tests {
                 removability(&v),
                 Err(RemovabilityError::Indeterminate)
             ));
-            assert!(!check_safety(&v, &[], false, None, &[]).checks[0].passed);
+            assert!(!check_safety(&v, &[], false, None, &[], Locale::Zh).checks[0].passed);
         }
     }
 
@@ -443,7 +514,7 @@ mod tests {
     #[test]
     fn scenario_format_card_system_disk_rejected() {
         // 即便总线是 USB（外接系统盘也存在），系统盘一律拒
-        let r = check_safety(&vol(BusType::Usb, true), &[], false, None, &[]);
+        let r = check_safety(&vol(BusType::Usb, true), &[], false, None, &[], Locale::Zh);
         assert!(!r.checks[0].passed);
         assert!(r.checks[0].detail.contains("系统盘"));
     }
@@ -451,8 +522,8 @@ mod tests {
     #[test]
     fn scenario_format_card_internal_disk_rejected() {
         for bus in [BusType::Nvme, BusType::Sata, BusType::Scsi] {
-            let r = check_safety(&vol(bus, false), &[], false, None, &[]);
-            assert!(!r.checks[0].passed, "{} 总线应被拒", bus.label());
+            let r = check_safety(&vol(bus, false), &[], false, None, &[], Locale::Zh);
+            assert!(!r.checks[0].passed, "{} 总线应被拒", bus.label(Locale::Zh));
             assert!(r.checks[0].detail.contains("固定盘"));
         }
     }
@@ -462,7 +533,7 @@ mod tests {
     fn scenario_format_card_destination_volume_rejected() {
         let v = vol(BusType::Usb, false);
         let dests = vec![PathBuf::from(r"E:\素材\备份")];
-        let r = check_safety(&v, &dests, false, Some(&evidence(&[], true)), &[]);
+        let r = check_safety(&v, &dests, false, Some(&evidence(&[], true)), &[], Locale::Zh);
         let g2 = r.checks.iter().find(|c| c.id == "G2").expect("G2");
         assert!(!g2.passed);
         assert!(g2.detail.contains("目的地"));
@@ -471,7 +542,7 @@ mod tests {
 
     #[test]
     fn scenario_format_card_busy_device_rejected() {
-        let r = check_safety(&vol(BusType::Usb, false), &[], true, Some(&evidence(&[], true)), &[]);
+        let r = check_safety(&vol(BusType::Usb, false), &[], true, Some(&evidence(&[], true)), &[], Locale::Zh);
         let g3 = r.checks.iter().find(|c| c.id == "G3").expect("G3");
         assert!(!g3.passed);
         assert!(g3.detail.contains("任务"));
@@ -490,6 +561,7 @@ mod tests {
             false,
             Some(&ev),
             &["A001.MP4".into(), "A002.MP4".into()],
+            Locale::Zh,
         );
         assert!(ok.passed(), "{:?}", ok.first_failure());
         assert_eq!(ok.backup_task_id.as_deref(), Some("task-1"));
@@ -501,6 +573,7 @@ mod tests {
             false,
             Some(&ev),
             &["A001.MP4".into(), "A002.MP4".into(), "A003.MP4".into()],
+            Locale::Zh,
         );
         assert!(!stale.passed());
         let g4 = stale.checks.iter().find(|c| c.id == "G4").expect("G4");
@@ -513,13 +586,13 @@ mod tests {
         let v = vol(BusType::Usb, false);
         // 备份存在但当初没校验 → 不作数
         let ev = evidence(&["A001.MP4"], false);
-        let r = check_safety(&v, &[], false, Some(&ev), &["A001.MP4".into()]);
+        let r = check_safety(&v, &[], false, Some(&ev), &["A001.MP4".into()], Locale::Zh);
         assert!(!r.passed(), "未校验的备份 MUST NOT 作为格式化依据");
     }
 
     #[test]
     fn scenario_format_card_no_backup_rejected() {
-        let r = check_safety(&vol(BusType::Usb, false), &[], false, None, &["A001.MP4".into()]);
+        let r = check_safety(&vol(BusType::Usb, false), &[], false, None, &["A001.MP4".into()], Locale::Zh);
         let g4 = r.checks.iter().find(|c| c.id == "G4").expect("G4");
         assert!(!g4.passed);
         assert!(g4.detail.contains("备份"));
@@ -527,14 +600,14 @@ mod tests {
 
     #[test]
     fn scenario_format_card_checks_run_in_order_and_report_which_failed() {
-        let report = check_safety(&vol(BusType::Usb, false), &[], false, None, &[]);
+        let report = check_safety(&vol(BusType::Usb, false), &[], false, None, &[], Locale::Zh);
         let ids: Vec<&str> = report.checks.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, vec!["G1", "G2", "G3", "G4"], "检查应按序全跑并各自留结论");
     }
 
     #[test]
     fn scenario_format_card_compact_trace_for_audit() {
-        let r = check_safety(&vol(BusType::Unknown, false), &[], false, None, &[]);
+        let r = check_safety(&vol(BusType::Unknown, false), &[], false, None, &[], Locale::Zh);
         let c = r.compact();
         assert!(c.contains("G1=fail"), "{c}");
         assert!(c.contains("G2=ok"), "{c}");
@@ -614,7 +687,10 @@ mod tests {
             AutoFormatDecision::NotVerified,
             AutoFormatDecision::DestinationIncomplete,
         ] {
-            assert!(!d.reason().is_empty(), "{d:?} 必须能说出没触发的原因");
+            assert!(
+                !d.reason(Locale::Zh).is_empty(),
+                "{d:?} 必须能说出没触发的原因"
+            );
             assert_ne!(d, AutoFormatDecision::Propose);
         }
     }
@@ -624,10 +700,10 @@ mod tests {
     fn scenario_format_card_countdown_bounds() {
         assert_eq!(COUNTDOWN_DEFAULT_SECS, 30);
         assert_eq!(COUNTDOWN_MIN_SECS, 10);
-        assert_eq!(validate_countdown(30), Ok(30));
-        assert_eq!(validate_countdown(10), Ok(10));
-        assert_eq!(validate_countdown(300), Ok(300));
-        let err = validate_countdown(5).expect_err("低于下限应被拒");
+        assert_eq!(validate_countdown(30, Locale::Zh), Ok(30));
+        assert_eq!(validate_countdown(10, Locale::Zh), Ok(10));
+        assert_eq!(validate_countdown(300, Locale::Zh), Ok(300));
+        let err = validate_countdown(5, Locale::Zh).expect_err("低于下限应被拒");
         assert!(err.contains("10"), "{err}");
     }
 }

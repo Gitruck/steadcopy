@@ -28,3 +28,7 @@ tauri-plugin-updater = "2.10.1"
 # `api.ai-mcn.tv.attacker.com` 和 `api.ai-mcn.tv@attacker.com` 都以白名单主机开头。
 # 不是新依赖：tauri 与 updater 本来就把它编进来了，这里只是显式声明。
 url = "2"
+# 只为了给更新器装一个自定义重定向策略（reqwest::redirect::Policy::custom）。
+# tauri-plugin-updater 的 configure_client 收的是 reqwest::ClientBuilder，而它不再导出 reqwest，
+# 所以必须显式声明。不是新依赖：updater 本来就把它编进来了，版本会归一到同一份。
+reqwest = { version = "0.13", default-features = false }

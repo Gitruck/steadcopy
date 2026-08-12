@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 
 use crate::device::DeviceRecord;
 use crate::engine::HashAlgorithm;
+use crate::i18n::Locale;
 use crate::organize::{PathTemplate, TemplateError};
 use crate::preset::Preset;
 
@@ -172,11 +173,11 @@ pub enum ConfigError {
     DestinationCount { project: String, count: usize },
     /// 该项目没有任何启用的目的地
     NoEnabledDestination { project: String },
-    /// 路径模板非法
+    /// 路径模板非法。带 [`TemplateError`] 本体而不是渲染好的中文串，理由见 `AdhocError::BadTemplate`
     BadTemplate {
         project: String,
         destination: String,
-        reason: String,
+        reason: TemplateError,
     },
     /// 预设指向了不存在的项目
     PresetProjectMissing { preset: String, project_id: String },
@@ -184,28 +185,64 @@ pub enum ConfigError {
     CountdownTooShort { secs: u32, min: u32 },
 }
 
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ConfigError::DestinationCount { project, count } => write!(
-                f,
-                "项目「{project}」的目的地数量应为 1 到 4 个，实际 {count} 个"
+impl ConfigError {
+    /// 给用户看的一句话，跟随语言。
+    pub fn describe(&self, lang: Locale) -> String {
+        match (self, lang) {
+            (ConfigError::DestinationCount { project, count }, Locale::Zh) => {
+                format!("项目「{project}」的目的地数量应为 1 到 4 个，实际 {count} 个")
+            }
+            (ConfigError::DestinationCount { project, count }, Locale::En) => format!(
+                "Project \"{project}\" must have 1 to 4 destinations, but it has {count}"
             ),
-            ConfigError::NoEnabledDestination { project } => {
-                write!(f, "项目「{project}」至少要有一个启用的目的地")
+            (ConfigError::NoEnabledDestination { project }, Locale::Zh) => {
+                format!("项目「{project}」至少要有一个启用的目的地")
             }
-            ConfigError::BadTemplate {
-                project,
-                destination,
-                reason,
-            } => write!(f, "项目「{project}」的目的地「{destination}」路径模板不合法：{reason}"),
-            ConfigError::PresetProjectMissing { preset, project_id } => {
-                write!(f, "预设「{preset}」指向的项目（{project_id}）已不存在")
+            (ConfigError::NoEnabledDestination { project }, Locale::En) => {
+                format!("Project \"{project}\" needs at least one enabled destination")
             }
-            ConfigError::CountdownTooShort { secs, min } => {
-                write!(f, "不可逆操作的确认倒计时不能短于 {min} 秒（你设的是 {secs} 秒）")
+            (
+                ConfigError::BadTemplate {
+                    project,
+                    destination,
+                    reason,
+                },
+                Locale::Zh,
+            ) => format!(
+                "项目「{project}」的目的地「{destination}」路径模板不合法：{}",
+                reason.describe(lang)
+            ),
+            (
+                ConfigError::BadTemplate {
+                    project,
+                    destination,
+                    reason,
+                },
+                Locale::En,
+            ) => format!(
+                "The path template of destination \"{destination}\" in project \"{project}\" is not valid: {}",
+                reason.describe(lang)
+            ),
+            (ConfigError::PresetProjectMissing { preset, project_id }, Locale::Zh) => {
+                format!("预设「{preset}」指向的项目（{project_id}）已不存在")
             }
+            (ConfigError::PresetProjectMissing { preset, project_id }, Locale::En) => format!(
+                "Preset \"{preset}\" points at project {project_id}, which no longer exists"
+            ),
+            (ConfigError::CountdownTooShort { secs, min }, Locale::Zh) => {
+                format!("不可逆操作的确认倒计时不能短于 {min} 秒（你设的是 {secs} 秒）")
+            }
+            (ConfigError::CountdownTooShort { secs, min }, Locale::En) => format!(
+                "The confirmation countdown for irreversible actions cannot be shorter than {min}s (you set {secs}s)"
+            ),
         }
+    }
+}
+
+impl std::fmt::Display for ConfigError {
+    /// `Display` 恒为中文，理由同 [`crate::error::CoreError`]。
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.describe(Locale::Zh))
     }
 }
 
@@ -237,7 +274,7 @@ impl Config {
                     return Err(ConfigError::BadTemplate {
                         project: p.name.clone(),
                         destination: d.root.display().to_string(),
-                        reason: e.to_string(),
+                        reason: e,
                     });
                 }
             }
@@ -368,7 +405,8 @@ mod tests {
         let err = c.validate().expect_err("非法模板应被拒");
         match err {
             ConfigError::BadTemplate { reason, .. } => {
-                assert!(reason.contains("项目") && reason.contains("日期") && reason.contains("设备"));
+                let zh = reason.describe(Locale::Zh);
+                assert!(zh.contains("项目") && zh.contains("日期") && zh.contains("设备"));
             }
             other => panic!("错误类型不对：{other:?}"),
         }

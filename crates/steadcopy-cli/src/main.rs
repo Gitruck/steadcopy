@@ -7,6 +7,22 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+/// 一句需要插值的双语文案。
+///
+/// 中英语序差别很大（「X 的 Y 不足」vs "Not enough Y on X"），所以**整句各写一遍**，
+/// 绝不拼片段——拼片段等于把语序知识散进调用点，改一句话要改两处。
+///
+/// 展开是对 `Locale` 的穷尽 `match`：新增一种语言，编译器会把每一处点出来。
+/// 不带插值的短语用 [`output::w`]。
+macro_rules! wf {
+    ($zh:literal, $en:literal $(, $arg:expr)* $(,)?) => {
+        match $crate::output::lang() {
+            steadcopy_core::i18n::Locale::Zh => format!($zh $(, $arg)*),
+            steadcopy_core::i18n::Locale::En => format!($en $(, $arg)*),
+        }
+    };
+}
+
 mod format;
 mod output;
 mod setup;
@@ -17,6 +33,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use steadcopy_core::engine::{CancelToken, HashAlgorithm};
+use steadcopy_core::error::{CoreError, TerminalKind};
 use steadcopy_core::manifest::model::SourceRef;
 use steadcopy_core::manifest::{audit, read_manifest, ObservedFile};
 use steadcopy_core::organize::{scan_source, PathTemplate, ScanOptions};
@@ -26,10 +43,20 @@ use steadcopy_core::task::{plan_task, run_task, DestinationSpec, TaskSpec};
 
 use output::{human_bytes, Emitter, ExitKind};
 
+// 这一屏（`--help`）**恒为中文**，这是个取舍不是漏译。
+//
+// clap 的帮助文本由属性宏在编译期定死，运行期换不了语言——真要双语，
+// 只能编译两份二进制，或者自己接管整套 help 渲染。两条都不值得为一屏文字付。
+// 所以在 `about` 里明说：`--lang en` 管的是**运行期输出**（结论、报告、错误），
+// 不管这一屏。用户看到英文结论而帮助是中文时，至少知道这是设计。
+//
+// 注意：这里用 `//` 而不是 `///`——doc 注释会被 clap 当成 `long_about` 印到
+// 用户屏幕上，内部取舍说明不该出现在那儿。
 #[derive(Parser)]
 #[command(
     name = "steadcopy",
-    about = "稳拷 · 插卡自动备份、双端校验、拷完给一张人话报告",
+    about = "稳拷 · 插卡自动备份、双端校验、拷完给一张人话报告\n\
+             （本帮助恒为中文；--lang en 只切换运行时输出与报告的语言）",
     version
 )]
 struct Cli {
@@ -37,9 +64,18 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
-    /// 本次输出用哪种语言：auto / zh / en。默认读配置，配置里默认跟随系统
-    #[arg(long, global = true)]
-    lang: Option<String>,
+    /// 运行时输出用哪种语言。auto = 跟随配置里的 locale，配置也是 auto 则跟随系统
+    #[arg(
+        long,
+        global = true,
+        default_value = steadcopy_core::i18n::LOCALE_AUTO,
+        value_parser = [
+            steadcopy_core::i18n::LOCALE_AUTO,
+            steadcopy_core::i18n::LOCALE_ZH,
+            steadcopy_core::i18n::LOCALE_EN,
+        ],
+    )]
+    lang: String,
 
     #[command(subcommand)]
     command: Command,
@@ -127,6 +163,12 @@ enum Command {
     },
 }
 
+/// 这里的中文缺省值**不随 `--lang` 变**，而且不能变。
+///
+/// 项目名与设备名会被路径模板的 `{项目}` `{设备}` 渲染进目录名，模板本身也是配置字面量。
+/// 跟着界面语言换，同一条命令在中英两种环境下就会把素材落到不同目录、
+/// 续传账本也对不上——那是判定随 locale 变，铁律不允许。
+/// 它们是**数据**，不是文案。
 #[derive(Args, Clone)]
 struct TaskArgs {
     /// 源目录
@@ -160,9 +202,15 @@ struct TaskArgs {
 impl TaskArgs {
     fn to_spec(&self) -> Result<TaskSpec, String> {
         if self.dests.is_empty() || self.dests.len() > 4 {
-            return Err(format!("目的地数量应为 1..4 个，实际 {}", self.dests.len()));
+            return Err(wf!(
+                "目的地数量应为 1..4 个，实际 {} 个",
+                "Expected 1 to 4 destinations, got {}",
+                self.dests.len()
+            ));
         }
-        let template = PathTemplate::parse(&self.template).map_err(|e| e.to_string())?;
+        // 模板错的成句在 core（界面与命令行共用同一句），这里只负责取本次的语言
+        let template =
+            PathTemplate::parse(&self.template).map_err(|e| e.describe(output::lang()))?;
         let algorithm = match self.algorithm.as_str() {
             "md5" => HashAlgorithm::Md5,
             _ => HashAlgorithm::Xxh64,
@@ -204,7 +252,7 @@ impl TaskArgs {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     // 语言在这里定一次，之后只读——命令行是短命进程，不需要也不该有可变的全局语言
-    output::set_lang(cli.lang.as_deref());
+    output::set_lang(&cli.lang);
     let mut out = Emitter::new(cli.json);
     let kind = match run(&cli, &mut out) {
         Ok(k) => k,
@@ -246,7 +294,8 @@ fn run(cli: &Cli, out: &mut Emitter) -> Result<ExitKind, String> {
 /// 所以准入判据这里传空——真正的互斥由系统的卷锁定负责：
 /// 有别的进程开着卡上的文件时，FSCTL_LOCK_VOLUME 会失败。
 fn cmd_eject(target: &str, out: &mut Emitter) -> Result<ExitKind, String> {
-    let vols = steadcopy_core::device::enumerate_volumes().map_err(|e| e.to_string())?;
+    let lang = output::lang();
+    let vols = steadcopy_core::device::enumerate_volumes().map_err(|e| e.describe(lang))?;
     let vol = vols
         .into_iter()
         .find(|v| {
@@ -254,13 +303,17 @@ fn cmd_eject(target: &str, out: &mut Emitter) -> Result<ExitKind, String> {
                 || v.drive_letter.as_deref().map(str::to_ascii_uppercase)
                     == Some(target.to_ascii_uppercase())
         })
-        .ok_or_else(|| format!("找不到这个卷：{target}"))?;
+        .ok_or_else(|| wf!("找不到这个卷：{}", "No such volume: {}", target))?;
 
-    steadcopy_core::device::can_eject(&vol.composite_id(), &[]).map_err(|e| e.to_string())?;
+    steadcopy_core::device::can_eject(&vol.composite_id(), &[]).map_err(|e| e.describe(lang))?;
     steadcopy_core::device::ejector()
         .eject(&vol.root_path())
-        .map_err(|e| e.to_string())?;
-    out.note(&format!("{} 已安全弹出，可以拔了", vol.display_name()));
+        .map_err(|e| e.describe(lang))?;
+    out.note(&wf!(
+        "{} 已安全弹出，可以拔了",
+        "{} was ejected safely — you can unplug it now",
+        vol.display_name()
+    ));
     Ok(ExitKind::Ok)
 }
 
@@ -288,30 +341,37 @@ fn write_html_report(
         audit: None,
         lang: output::lang(),
     };
-    write_report(&target, &input).map_err(|e| format!("报告写入失败：{e}"))?;
+    // io::Error 的文字由系统给，本身不受我们控制；外面这句是我们的，跟随语言
+    write_report(&target, &input)
+        .map_err(|e| wf!("报告写入失败：{}", "Could not write the report: {}", e))?;
     Ok(target)
 }
 
 fn cmd_report(
     manifest_path: &Path,
-    output: Option<&Path>,
+    output_path: Option<&Path>,
     out: &mut Emitter,
 ) -> Result<ExitKind, String> {
-    let m = read_manifest(manifest_path).map_err(|e| e.to_string())?;
-    let p = write_html_report(manifest_path, &m, &[], 0, &[], None, output)?;
+    let m = read_manifest(manifest_path).map_err(|e| e.describe(output::lang()))?;
+    let p = write_html_report(manifest_path, &m, &[], 0, &[], None, output_path)?;
     out.report_written(&p);
     Ok(ExitKind::Ok)
 }
 
 fn cmd_devices(out: &mut Emitter) -> Result<ExitKind, String> {
-    let vols = steadcopy_core::device::enumerate_volumes().map_err(|e| e.to_string())?;
+    let vols =
+        steadcopy_core::device::enumerate_volumes().map_err(|e| e.describe(output::lang()))?;
     out.devices(&vols);
     Ok(ExitKind::Ok)
 }
 
 fn cmd_scan(source: &Path, list: bool, out: &mut Emitter) -> Result<ExitKind, String> {
     if !source.exists() {
-        return Err(format!("源目录不存在：{}", source.display()));
+        return Err(wf!(
+            "源目录不存在：{}",
+            "The source directory does not exist: {}",
+            source.display()
+        ));
     }
     let r = scan_source(source, &ScanOptions::mirror());
     out.scan(&r, list);
@@ -326,7 +386,7 @@ fn cmd_scan(source: &Path, list: bool, out: &mut Emitter) -> Result<ExitKind, St
 fn cmd_plan(args: &TaskArgs, out: &mut Emitter) -> Result<ExitKind, String> {
     let spec = args.to_spec()?;
     let io = volume_io();
-    let plan = plan_task(&spec, io.as_ref()).map_err(|e| e.to_string())?;
+    let plan = plan_task(&spec, io.as_ref()).map_err(|e| e.describe(output::lang()))?;
     out.plan(&plan);
     Ok(if plan.insufficient().count() > 0 {
         ExitKind::Terminal
@@ -336,30 +396,40 @@ fn cmd_plan(args: &TaskArgs, out: &mut Emitter) -> Result<ExitKind, String> {
 }
 
 fn cmd_copy(args: &TaskArgs, out: &mut Emitter) -> Result<ExitKind, String> {
+    let lang = output::lang();
     let spec = args.to_spec()?;
     let io = volume_io();
-    let plan = plan_task(&spec, io.as_ref()).map_err(|e| e.to_string())?;
+    let plan = plan_task(&spec, io.as_ref()).map_err(|e| e.describe(lang))?;
 
+    // 这两句 core 已经产过成句（界面也用同一句），命令行不再重写一份
     if plan.is_no_source() {
-        out.finished_empty("no_source", "源上没有可拷贝的素材");
+        out.finished_empty(
+            "no_source",
+            &CoreError::terminal(TerminalKind::NoSource).describe(lang),
+        );
         return Ok(ExitKind::Terminal);
     }
     if let Some(d) = plan.insufficient().next() {
-        return Err(format!(
+        let unknown = output::w("未知", "unknown");
+        return Err(wf!(
             "目的地空间不足：{} 需要 {}，可用 {}，还差 {}",
+            "Not enough space at {}: needs {}, has {}, short by {}",
             d.landing_dir.display(),
             human_bytes(d.required_bytes),
             d.available_bytes
                 .map(human_bytes)
-                .unwrap_or_else(|| "未知".into()),
+                .unwrap_or_else(|| unknown.into()),
             d.shortfall()
                 .map(human_bytes)
-                .unwrap_or_else(|| "未知".into()),
+                .unwrap_or_else(|| unknown.into()),
         ));
     }
     if plan.is_no_new_source() {
         // 「无新素材」是正常结果不是错误 → 退出码 0
-        out.finished_empty("no_new_source", "没有新素材，本次无需拷贝");
+        out.finished_empty(
+            "no_new_source",
+            &CoreError::terminal(TerminalKind::NoNewSource).describe(lang),
+        );
         return Ok(ExitKind::Ok);
     }
 
@@ -370,7 +440,7 @@ fn cmd_copy(args: &TaskArgs, out: &mut Emitter) -> Result<ExitKind, String> {
     let report = {
         let mut sink = out.progress_sink();
         run_task(&spec, &plan, io.as_ref(), &clock, &cancel, &mut sink)
-            .map_err(|e| e.to_string())?
+            .map_err(|e| e.describe(lang))?
     };
     // 拷完自动出一份报告——「证」是这个产品的一半价值，不该要用户再敲一条命令
     let failures: Vec<(String, String, u32)> = report
@@ -423,18 +493,29 @@ fn cmd_audit(
     dir: Option<&Path>,
     out: &mut Emitter,
 ) -> Result<ExitKind, String> {
-    let m = read_manifest(manifest_path).map_err(|e| e.to_string())?;
+    let lang = output::lang();
+    let m = read_manifest(manifest_path).map_err(|e| e.describe(lang))?;
     // 清单落在 <落地目录>/steadcopy/ 下，默认取其上一级
     let target = match dir {
         Some(d) => d.to_path_buf(),
         None => manifest_path
             .parent()
             .and_then(|p| p.parent())
-            .ok_or_else(|| "无法从清单路径推断被复验目录，请用 --dir 指定".to_string())?
+            .ok_or_else(|| {
+                output::w(
+                    "无法从清单路径推断被复验目录，请用 --dir 指定",
+                    "Cannot infer the directory to re-verify from the manifest path — pass --dir",
+                )
+                .to_string()
+            })?
             .to_path_buf(),
     };
     if !target.exists() {
-        return Err(format!("被复验的目录不存在：{}", target.display()));
+        return Err(wf!(
+            "被复验的目录不存在：{}",
+            "The directory to re-verify does not exist: {}",
+            target.display()
+        ));
     }
 
     let io = volume_io();
@@ -445,7 +526,14 @@ fn cmd_audit(
         }
         let hash =
             steadcopy_core::engine::hash_destination(io.as_ref(), &f.absolute_path, m.algorithm)
-                .map_err(|e| format!("{} 读取失败：{e}", f.relative_path))?;
+                .map_err(|e| {
+                    wf!(
+                        "{} 读取失败：{}",
+                        "Could not read {}: {}",
+                        f.relative_path,
+                        e.describe(lang)
+                    )
+                })?;
         observed.push(ObservedFile::new(&f.relative_path, f.size, hash));
     }
 

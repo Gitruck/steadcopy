@@ -1,14 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "最小权限集。刻意不含 shell 执行、不含宽泛 fs 权限、也不含 opener 的任意路径——前身放行 powershell 任意参数，等于前端 XSS 即 RCE。用系统程序打开文件或链接一律走后端命令（open_config_file / open_report_file / reveal_landing_dir / open_guide），路径与网址由后端自己算或先校验——前端连传一个任意 URL 的机会都没有。",
+  "description": "最小权限集。刻意不含 shell 执行、不含宽泛 fs 权限、也不含 opener 的任意路径——前身放行 powershell 任意参数，等于前端 XSS 即 RCE。用系统程序打开文件或链接一律走后端命令（open_config_file / open_report_file / reveal_landing_dir / open_guide），路径与网址由后端自己算或先校验——前端连传一个任意 URL 的机会都没有。也刻意不含 updater:default，理由见下。",
   "windows": ["main"],
+  "//": "为什么没有 updater:default —— 它展开成 allow-check / allow-download / allow-install / allow-download-and-install 四条，等于把插件命令直接开给前端。插件侧的 check 签名是 (headers, timeout, proxy, target, allow_downgrades)，全部由前端传：proxy 走 reqwest::Proxy::all(任意 URL)、headers 走 HeaderMap::append(任意 k/v)，合起来就是一个「任意主机 + 任意数据塞 header」的出站通道——而本程序除了更新器没有任何联网能力，首页写的「零遥测」会从架构性质降级成口头承诺。同时它绕过我们在 install_update 里加的三道闸：有任务在跑就拒绝、设置里关掉就不发请求、下载地址过主机白名单；allow_downgrades:true 还能把版本比较换成「不等即可装」，配合被攻陷的更新源可降级到任意历史版本。而这个权限完全不需要：前端只调自研的 check_update / install_update 两个命令，Rust 侧走的是 UpdaterExt trait，capabilities 只管 IPC、不管 Rust API。",
   "permissions": [
     "core:default",
     "core:window:allow-minimize",
     "core:window:allow-start-dragging",
     "dialog:allow-open",
-    "notification:default",
-    "updater:default"
+    "notification:default"
   ]
 }

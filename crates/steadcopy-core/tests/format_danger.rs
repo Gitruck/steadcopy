@@ -19,6 +19,7 @@
 //!    靶标是系统盘或本机固定盘同样**中止**。
 
 use steadcopy_core::device::{enumerate_volumes, formatter, Volume};
+use steadcopy_core::i18n::Locale;
 
 /// 三重闸门里的第 2、3 道。返回靶标卷。
 ///
@@ -58,7 +59,7 @@ fn danger_guard() -> Option<Volume> {
     assert!(
         vol.bus_type.is_external(),
         "靶标 {target} 不在外接总线上（{}），疑似本机固定盘。中止",
-        vol.bus_type.label()
+        vol.bus_type.label(Locale::Zh)
     );
 
     Some(vol)

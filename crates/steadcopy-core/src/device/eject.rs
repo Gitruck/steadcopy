@@ -12,7 +12,12 @@
 
 use std::path::Path;
 
+use crate::i18n::Locale;
+
 /// 弹出失败的原因。分类是给用户看的——「被占用」和「设备不支持」的下一步动作不同。
+///
+/// `Busy` / `Failed` 里带的那串是**诊断信息**，由系统给出、语言中立
+/// （Win32 接口名 + 系统消息），人话在 [`EjectError::describe`] 里。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EjectError {
     /// 该设备上有任务在跑。这一条在到达弹出接口之前就该被拦下
@@ -25,17 +30,35 @@ pub enum EjectError {
     Failed(String),
 }
 
-impl std::fmt::Display for EjectError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EjectError::TaskRunning => write!(f, "该设备上有任务正在进行，不能弹出"),
-            EjectError::Busy(d) => write!(
-                f,
-                "设备正被其他程序占用，无法弹出（{d}）。关掉正在读这张卡的程序后再试"
+impl EjectError {
+    /// 给用户看的一句话，跟随语言。**每一条都要带下一步动作**。
+    pub fn describe(&self, lang: Locale) -> String {
+        match (self, lang) {
+            (EjectError::TaskRunning, Locale::Zh) => "该设备上有任务正在进行，不能弹出".into(),
+            (EjectError::TaskRunning, Locale::En) => {
+                "A task is running on this device, so it cannot be ejected".into()
+            }
+            (EjectError::Busy(d), Locale::Zh) => {
+                format!("设备正被其他程序占用，无法弹出（{d}）。关掉正在读这张卡的程序后再试")
+            }
+            (EjectError::Busy(d), Locale::En) => format!(
+                "Another program is using this device, so it cannot be ejected ({d}). \
+                 Close whatever is reading the card and try again"
             ),
-            EjectError::Unsupported => write!(f, "本平台不支持安全弹出"),
-            EjectError::Failed(d) => write!(f, "弹出失败：{d}"),
+            (EjectError::Unsupported, Locale::Zh) => "本平台不支持安全弹出".into(),
+            (EjectError::Unsupported, Locale::En) => {
+                "Safe eject is not supported on this platform".into()
+            }
+            (EjectError::Failed(d), Locale::Zh) => format!("弹出失败：{d}"),
+            (EjectError::Failed(d), Locale::En) => format!("Eject failed: {d}"),
         }
+    }
+}
+
+impl std::fmt::Display for EjectError {
+    /// `Display` 恒为中文，理由同 [`crate::error::CoreError`]。
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.describe(Locale::Zh))
     }
 }
 

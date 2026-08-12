@@ -15,7 +15,7 @@
 两个安装包**是同一个产品的两种装法**，productName 相同，差别只有 WebView2 装法一处。
 名字不同会被 Windows 当成两个程序——离线版用户收到更新（更新指向精简版）就会装出第二份。
 
-自动化现状：**安全轨测试全绿**（根 workspace 319 条 + app 壳 5 条），`clippy -D warnings` 干净（含自定义的静默降级禁令），
+自动化现状：**安全轨测试全绿**（根 workspace 321 条 + app 壳 8 条），`clippy -D warnings` 干净（含自定义的静默降级禁令），
 `tsc --noEmit` 干净，场景覆盖自检通过。危险轨 3 条 `#[ignore]`，**从未在本机执行过**。
 
 `app/src-tauri` 是独立 workspace，根目录的 `cargo test --workspace` 扫不到它（更新端点白名单那几条测试住在那儿），

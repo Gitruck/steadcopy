@@ -21,8 +21,9 @@ use time::OffsetDateTime;
 
 use crate::config::model::{Config, DestinationConfig, Project};
 use crate::engine::HashAlgorithm;
+use crate::i18n::Locale;
 use crate::manifest::model::SourceRef;
-use crate::organize::ScanOptions;
+use crate::organize::{ScanOptions, TemplateError};
 use crate::task::plan::{DestinationSpec, TaskSpec};
 
 /// 一个项目都没有时预填的名字。用户可以直接过，也可以改。
@@ -70,22 +71,50 @@ pub enum AdhocError {
     NoDestination,
     /// 指定的项目不存在（配置被外部改过）
     ProjectMissing { id: String },
-    /// 目的地的路径模板不合法
-    BadTemplate { root: PathBuf, reason: String },
+    /// 目的地的路径模板不合法。
+    ///
+    /// 带的是 [`TemplateError`] 本体而不是它的中文串——把上游错误在这里先渲染成字，
+    /// 等于把语言在这一层定死，下游再想换语言就只剩一份中文了。
+    BadTemplate {
+        root: PathBuf,
+        reason: TemplateError,
+    },
+}
+
+impl AdhocError {
+    /// 给用户看的一句话，跟随语言。
+    pub fn describe(&self, lang: Locale) -> String {
+        match (self, lang) {
+            (AdhocError::AlreadyRunning { device_name }, Locale::Zh) => {
+                format!("「{device_name}」上已有任务在进行，等它跑完再来")
+            }
+            (AdhocError::AlreadyRunning { device_name }, Locale::En) => {
+                format!("A task is already running on \"{device_name}\" — wait for it to finish")
+            }
+            (AdhocError::NoDestination, Locale::Zh) => "至少要选一个拷到哪儿的目的地".into(),
+            (AdhocError::NoDestination, Locale::En) => {
+                "Pick at least one destination to copy to".into()
+            }
+            (AdhocError::ProjectMissing { id }, Locale::Zh) => format!("找不到这个项目：{id}"),
+            (AdhocError::ProjectMissing { id }, Locale::En) => format!("No such project: {id}"),
+            (AdhocError::BadTemplate { root, reason }, Locale::Zh) => format!(
+                "目的地 {} 的路径模板不合法：{}",
+                root.display(),
+                reason.describe(lang)
+            ),
+            (AdhocError::BadTemplate { root, reason }, Locale::En) => format!(
+                "The path template for destination {} is not valid: {}",
+                root.display(),
+                reason.describe(lang)
+            ),
+        }
+    }
 }
 
 impl std::fmt::Display for AdhocError {
+    /// `Display` 恒为中文，理由同 [`crate::error::CoreError`]。
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AdhocError::AlreadyRunning { device_name } => {
-                write!(f, "「{device_name}」上已有任务在进行，等它跑完再来")
-            }
-            AdhocError::NoDestination => write!(f, "至少要选一个拷到哪儿的目的地"),
-            AdhocError::ProjectMissing { id } => write!(f, "找不到这个项目：{id}"),
-            AdhocError::BadTemplate { root, reason } => {
-                write!(f, "目的地 {} 的路径模板不合法：{reason}", root.display())
-            }
-        }
+        f.write_str(&self.describe(Locale::Zh))
     }
 }
 
@@ -195,7 +224,7 @@ pub fn build_adhoc_spec(
         // 模板不合法就明说是哪个目的地，别让用户对着一句「配置错误」猜
         let template = d.parsed_template().map_err(|e| AdhocError::BadTemplate {
             root: d.root.clone(),
-            reason: e.to_string(),
+            reason: e,
         })?;
         destinations.push(DestinationSpec {
             root: d.root.clone(),

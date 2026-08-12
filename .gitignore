@@ -20,6 +20,11 @@ app/src-tauri/gen/
 *.msi
 *.zip
 
+# Python 字节码缓存。package-extras.py / collect-bundle.py 用 importlib 加载
+# build-release.py，会在 scripts/ 下生成 __pycache__——纯本地产物，不入库。
+__pycache__/
+*.pyc
+
 # 编辑器与系统
 .vscode/
 .idea/

@@ -8,6 +8,8 @@
 
 use std::path::PathBuf;
 
+use crate::i18n::Locale;
+
 /// 可重试族：重新插卡重跑有可能成功。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RetryableKind {
@@ -102,28 +104,64 @@ impl CoreError {
             CoreError::Retryable(_, c) | CoreError::Terminal(_, c) => c,
         }
     }
+
+    /// 给用户看的一句话，跟随语言。
+    ///
+    /// 文案本体**只在这一处**——`Display` 转调 `describe(Locale::Zh)`，
+    /// 不存在第二份中文可以漂移。
+    pub fn describe(&self, lang: Locale) -> String {
+        let desc = match self {
+            CoreError::Retryable(RetryableKind::CopyIo, _) => {
+                lang.pick("拷贝过程中读写失败", "A read or write failed while copying")
+            }
+            CoreError::Retryable(RetryableKind::VerifyMismatch, _) => lang.pick(
+                "校验不一致，重试后仍未通过",
+                "Verification still did not match after retrying",
+            ),
+            CoreError::Retryable(RetryableKind::DeviceRemoved, _) => lang.pick(
+                "设备在任务进行中被移除",
+                "The device was removed while the task was running",
+            ),
+            CoreError::Retryable(RetryableKind::DestinationUnwritable, _) => {
+                lang.pick("目的地当前不可写入", "The destination is not writable right now")
+            }
+            CoreError::Terminal(TerminalKind::NoSource, _) => lang.pick(
+                "源设备上没有符合条件的素材",
+                "No matching media on the source device",
+            ),
+            CoreError::Terminal(TerminalKind::NoNewSource, _) => lang.pick(
+                "没有新素材，本次无需拷贝",
+                "Nothing new to copy this time",
+            ),
+            CoreError::Terminal(TerminalKind::InsufficientSpace, _) => {
+                lang.pick("目的地可用空间不足", "Not enough free space at the destination")
+            }
+            CoreError::Terminal(TerminalKind::SourceUnreadable, _) => {
+                lang.pick("源设备无法读取", "The source device cannot be read")
+            }
+            CoreError::Terminal(TerminalKind::InvalidConfig, _) => {
+                lang.pick("配置不合法", "The configuration is not valid")
+            }
+            CoreError::Terminal(TerminalKind::Unsupported, _) => lang.pick(
+                "当前平台尚不支持该功能",
+                "This platform does not support that yet",
+            ),
+        };
+        // 路径是**数据**不是文案：中文目录名出现在英文句子里是对的，不该被护栏当成漏译。
+        // 变的只有括号——中文用全角，英文用半角加空格。
+        match (&self.context().path, lang) {
+            (Some(p), Locale::Zh) => format!("{desc}（{}）", p.display()),
+            (Some(p), Locale::En) => format!("{desc} ({})", p.display()),
+            (None, _) => desc.to_string(),
+        }
+    }
 }
 
 impl std::fmt::Display for CoreError {
+    /// `Display` 恒为中文：它落在日志与命令行兜底里，那些地方拿不到 locale。
+    /// 要跟随语言的调用方走 [`CoreError::describe`]。
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let desc = match self {
-            CoreError::Retryable(RetryableKind::CopyIo, _) => "拷贝过程中读写失败",
-            CoreError::Retryable(RetryableKind::VerifyMismatch, _) => "校验不一致，重试后仍未通过",
-            CoreError::Retryable(RetryableKind::DeviceRemoved, _) => "设备在任务进行中被移除",
-            CoreError::Retryable(RetryableKind::DestinationUnwritable, _) => "目的地当前不可写入",
-            CoreError::Terminal(TerminalKind::NoSource, _) => "源设备上没有符合条件的素材",
-            CoreError::Terminal(TerminalKind::NoNewSource, _) => "没有新素材，本次无需拷贝",
-            CoreError::Terminal(TerminalKind::InsufficientSpace, _) => "目的地可用空间不足",
-            CoreError::Terminal(TerminalKind::SourceUnreadable, _) => "源设备无法读取",
-            CoreError::Terminal(TerminalKind::InvalidConfig, _) => "配置不合法",
-            CoreError::Terminal(TerminalKind::Unsupported, _) => "当前平台尚不支持该功能",
-        };
-        write!(f, "{desc}")?;
-        let ctx = self.context();
-        if let Some(p) = &ctx.path {
-            write!(f, "（{}）", p.display())?;
-        }
-        Ok(())
+        f.write_str(&self.describe(Locale::Zh))
     }
 }
 

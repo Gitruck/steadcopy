@@ -45,7 +45,8 @@ impl BusType {
         )
     }
 
-    pub const fn label(self) -> &'static str {
+    /// 总线的显示名。前七个是接口的专名，两种语言下都念这一串。
+    pub const fn label(self, lang: crate::i18n::Locale) -> &'static str {
         match self {
             BusType::Usb => "USB",
             BusType::Thunderbolt => "Thunderbolt",
@@ -54,9 +55,9 @@ impl BusType {
             BusType::Nvme => "NVMe",
             BusType::Sata => "SATA",
             BusType::Scsi => "SCSI",
-            BusType::Network => "网络",
-            BusType::Other => "其他",
-            BusType::Unknown => "未知",
+            BusType::Network => lang.pick("网络", "Network"),
+            BusType::Other => lang.pick("其他", "Other"),
+            BusType::Unknown => lang.pick("未知", "Unknown"),
         }
     }
 }
@@ -216,7 +217,7 @@ mod tests {
             assert!(
                 !vol(bus, false).can_be_source(&[]),
                 "{} 总线不该被当作源",
-                bus.label()
+                bus.label(crate::i18n::Locale::Zh)
             );
         }
     }
@@ -309,7 +310,11 @@ mod tests {
             BusType::Other,
             BusType::Unknown,
         ] {
-            assert!(!b.is_external(), "{} 不该被当作外接总线", b.label());
+            assert!(
+                !b.is_external(),
+                "{} 不该被当作外接总线",
+                b.label(crate::i18n::Locale::Zh)
+            );
         }
     }
 }

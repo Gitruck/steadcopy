@@ -4,10 +4,21 @@
 
 规范：能力 `build-release` 的 spec（openspec 私仓）→ Requirement: 更新来源可镜像
 
-    python scripts/publish-mirror.py --zip ~/Downloads/steadcopy-v0.1.1.zip   # 常用
-    python scripts/publish-mirror.py                 # 从本地 release/ 发布
-    python scripts/publish-mirror.py --dir dist      # 从别处发布
-    python scripts/publish-mirror.py --zip ... --dry-run   # 只说要干什么，不动文件
+    # 门控之前：把包传上去（传了也没人找得到，因为清单还没换）
+    python scripts/publish-mirror.py --zip ~/Downloads/steadcopy-v0.1.1.zip
+
+    # 门控全过之后：放出去
+    python scripts/publish-mirror.py --zip ~/Downloads/steadcopy-v0.1.1.zip --publish-manifest
+
+    # 放出去之后发现问题
+    python scripts/publish-mirror.py --rollback
+
+**为什么分两步。** 写下 `latest.json` 的那一瞬间，所有开着「检查更新」的客户端
+就能装到这一版了——镜像是 `endpoints[0]`，它说了算，GitHub 那边的草稿 Release
+还没公开**不作数**。所以清单必须等门控 R1–R16 全过之后再写，否则「草稿」这道闸
+形同虚设：R10 断网安装没过、R14 杀软误报还没申报，版本却已经发给所有人了。
+
+先传包后放清单还有个好处：206 MB 的上传在门控之前就完成了，最后那一步只写几百字节。
 
 `--zip` 收的是 GitHub Actions 页面上下载下来的产物包，直接指过去就行，
 不用自己解压——少一步就少一次「解错目录」。
@@ -146,11 +157,12 @@ def verify_live(src, name, expected_digest, manifest):
     url = f"{PUBLIC_BASE}/latest.json"
     try:
         status, body = fetch(url)
-        live = json.loads(body.decode("utf-8"))
+        # 状态先查再解析：非 200 时正文多半不是 JSON，先 loads 会抛进 except，
+        # 把「返回了 403」笼统报成「取不到」
         if status != 200:
-            print(f"✗ {url} 返回 {status}")
-            ok = False
-        elif live != manifest:
+            raise RuntimeError(f"返回 {status}")
+        live = json.loads(body.decode("utf-8"))
+        if live != manifest:
             print(f"✗ {url} 取回来的清单与刚发布的不一致（缓存？）")
             ok = False
         else:
@@ -170,11 +182,18 @@ def verify_live(src, name, expected_digest, manifest):
         with urllib.request.urlopen(req, timeout=30) as r:
             head = r.read(1024)
         local = open(os.path.join(src, name), "rb").read(1024)
-        if head[: len(local)] != local[: len(head)]:
+        # 长度必须先查。`head[:len(local)] != local[:len(head)]` 在 head 为空时
+        # 两边都切成 b"" 判等通过——「地址通了但一个字节都取不到」这个最典型的
+        # 镜像故障，恰好是唯一能骗过回读的情形。截断（只回了几百字节）同理。
+        want = min(len(local), 1024)
+        if len(head) < want:
+            print(f"✗ {url} 只回了 {len(head)} 字节（期望至少 {want}），像是空响应或被截断")
+            ok = False
+        elif head[:want] != local[:want]:
             print(f"✗ {url} 开头字节与本地不同")
             ok = False
         else:
-            print(f"✓ {url} 可下载，开头字节一致")
+            print(f"✓ {url} 可下载，开头 {want} 字节一致")
     except Exception as e:
         print(f"✗ {url} 取不到：{e}")
         ok = False
@@ -200,6 +219,27 @@ def unpack(zip_path, into):
     )
 
 
+def rollback(nas):
+    """把 latest.json 还原成上一版。
+
+    用在「已经放出去了才发现问题」。安装包本身不删——旧客户端可能正下到一半，
+    抽掉文件只会让它们拿到半个包；把清单换回去就够了：新的检查更新不会再看到这一版。
+    """
+    live = os.path.join(nas, "latest.json")
+    prev = os.path.join(nas, "latest.prev.json")
+    if not os.path.exists(prev):
+        raise SystemExit(
+            f"{prev} 不在——没有上一版清单可还原。\n"
+            "（第一次发布就没有「上一版」，那种情况下直接删掉 latest.json 即可，"
+            "客户端会回落到 GitHub 端点。）"
+        )
+    shutil.copy2(prev, live)
+    data = json.load(io.open(live, encoding="utf-8"))
+    print(f"已把 latest.json 还原到 v{data.get('version', '?')}")
+    print("安装包没删——正下到一半的客户端不该被抽掉文件。新的检查更新不会再看到撤回的那版。")
+    print(f"确认一下：{PUBLIC_BASE}/latest.json")
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -207,8 +247,15 @@ def main():
     src.add_argument("--zip", help="从 Actions 下载下来的产物包，自动解压")
     src.add_argument("--dir", help="产物目录（默认 release/）")
     ap.add_argument("--nas", default=NAS_DIR, help="NAS 上的目标目录")
+    ap.add_argument("--publish-manifest", action="store_true",
+                    help="写 latest.json —— **这一步一放，更新就对所有客户端上线了**。门控走完再加")
+    ap.add_argument("--rollback", action="store_true",
+                    help="把 latest.json 还原成上一版（发出去之后发现问题时用）")
     ap.add_argument("--dry-run", action="store_true", help="只说要干什么，不动文件")
     args = ap.parse_args()
+
+    if args.rollback:
+        return rollback(args.nas)
 
     tmp = None
     if args.zip:
@@ -237,7 +284,10 @@ def main():
         print("\n[dry-run] 将要复制：")
         for f in files:
             print(f"   {f}  →  {args.nas}\\{f}")
-        print(f"   latest.mirror.json  →  {args.nas}\\latest.json")
+        if args.publish_manifest:
+            print(f"   latest.mirror.json  →  {args.nas}\\latest.json  ← **这一步一放，更新就上线了**")
+        else:
+            print("   （不写 latest.json——加 --publish-manifest 才写）")
         return
 
     nas_parent = os.path.dirname(args.nas)
@@ -248,24 +298,45 @@ def main():
         )
     os.makedirs(args.nas, exist_ok=True)
 
-    print("\n复制：")
+    print("\n复制安装包：")
     for f in files:
         shutil.copy2(os.path.join(SRC, f), os.path.join(args.nas, f))
         print(f"   {f}")
 
-    # **清单最后写。** 先有包再有清单：反过来的话，在两次复制之间检查更新的客户端
-    # 会拿到一份指向还不存在的文件的清单，下载 404。
-    io.open(os.path.join(args.nas, "latest.json"), "w",
-            encoding="utf-8", newline="\n").write(
+    if not args.publish_manifest:
+        print(
+            "\n包已经在镜像上了，但**更新还没放出去**——latest.json 没动，"
+            "客户端查更新拿到的仍是上一版。\n"
+            "按 docs/release-checklist.md 走完门控 R1–R16，再跑一次带 --publish-manifest 的。"
+        )
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
+        return
+
+    # **清单最后写，而且要在门控之后写。**
+    #
+    # 两层理由，都不是形式主义：
+    # 1. 先有包再有清单——反过来的话，两次复制之间检查更新的客户端会拿到一份
+    #    指向还不存在的文件的清单，下载 404。
+    # 2. 写下这一行的瞬间，**所有开着「检查更新」的客户端就能装到这一版了**。
+    #    GitHub 那边的草稿 Release 还没公开不作数——镜像是 endpoints[0]，
+    #    它说了算。所以这一步必须排在门控全过之后，否则「草稿」这道闸形同虚设：
+    #    R10 断网安装没过、R14 杀软误报没申报，版本却已经发给所有人了。
+    live = os.path.join(args.nas, "latest.json")
+    if os.path.exists(live):
+        # 留一份上一版，出事能放回去（--rollback）
+        shutil.copy2(live, os.path.join(args.nas, "latest.prev.json"))
+    io.open(live, "w", encoding="utf-8", newline="\n").write(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
     )
-    print("   latest.json（最后写：先有包再有清单，中间检查更新的客户端才不会下到 404）")
+    print("   latest.json —— 更新已上线")
 
     print("\n回读确认：")
     if not verify_live(SRC, slim_name, sums.get(slim_name, ""), manifest):
         raise SystemExit(
             "\n镜像回读没过。文件也许复制上去了，但从公网地址取不到正确内容——"
             "在查清楚之前不要对外说更新可用。"
+            f"\n想撤回：python scripts/publish-mirror.py --rollback"
         )
     print(f"\n完成。更新端点：{PUBLIC_BASE}/latest.json")
 

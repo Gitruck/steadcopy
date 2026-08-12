@@ -69,23 +69,51 @@ pub enum TemplateError {
     EmptyTemplate,
 }
 
-impl fmt::Display for TemplateError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TemplateError::MissingRequiredPlaceholder => write!(
-                f,
-                "模板至少要包含 {{项目}}、{{日期}}、{{设备}} 三者之一，否则不同来源的素材会混进同一个目录"
-            ),
-            TemplateError::UnknownPlaceholder(t) => {
+impl TemplateError {
+    /// 给用户看的一句话，跟随语言。
+    ///
+    /// 句子里的 `{项目}` `{日期}` 这些**不翻译**：它们是用户要照抄进模板的字面量，
+    /// 和盘符、素材名一样属于数据。翻掉了，同一份配置在两种语言下会落到不同目录，
+    /// 那就是判定随语言变。
+    pub fn describe(&self, lang: crate::i18n::Locale) -> String {
+        use crate::i18n::Locale;
+        match (self, lang) {
+            (TemplateError::MissingRequiredPlaceholder, Locale::Zh) => {
+                "模板至少要包含 {项目}、{日期}、{设备} 三者之一，否则不同来源的素材会混进同一个目录"
+                    .into()
+            }
+            (TemplateError::MissingRequiredPlaceholder, Locale::En) => {
+                "The template must contain at least one of {项目} {日期} {设备}, \
+                 otherwise media from different sources ends up in the same folder"
+                    .into()
+            }
+            (TemplateError::UnknownPlaceholder(t), lang) => {
                 let all: Vec<String> = Placeholder::ALL
                     .iter()
                     .map(|p| format!("{{{}}}", p.token()))
                     .collect();
-                write!(f, "不认识的占位符 {{{t}}}，可用的有：{}", all.join(" "))
+                let all = all.join(" ");
+                match lang {
+                    Locale::Zh => format!("不认识的占位符 {{{t}}}，可用的有：{all}"),
+                    Locale::En => format!("Unknown placeholder {{{t}}}. Available: {all}"),
+                }
             }
-            TemplateError::UnbalancedBrace => write!(f, "花括号没有配对"),
-            TemplateError::EmptyTemplate => write!(f, "模板渲染后是空的，至少要有一层目录"),
+            (TemplateError::UnbalancedBrace, Locale::Zh) => "花括号没有配对".into(),
+            (TemplateError::UnbalancedBrace, Locale::En) => "The braces are not balanced".into(),
+            (TemplateError::EmptyTemplate, Locale::Zh) => {
+                "模板渲染后是空的，至少要有一层目录".into()
+            }
+            (TemplateError::EmptyTemplate, Locale::En) => {
+                "The template renders to nothing — it needs at least one folder level".into()
+            }
         }
+    }
+}
+
+impl fmt::Display for TemplateError {
+    /// `Display` 恒为中文，理由同 [`crate::error::CoreError`]。
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.describe(crate::i18n::Locale::Zh))
     }
 }
 

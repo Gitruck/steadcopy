@@ -15,6 +15,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use crate::error::{CoreError, ErrorContext, Result, TerminalKind};
+use crate::i18n::Locale;
 use crate::manifest::model::{Manifest, MANIFEST_FORMAT_VERSION};
 
 /// 落地目录下承载凭证的子目录名。
@@ -34,18 +35,34 @@ pub enum ManifestReadIssue {
     FutureVersion { found: u32, supported: u32 },
 }
 
-impl std::fmt::Display for ManifestReadIssue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ManifestReadIssue::Unreadable(e) => write!(f, "清单文件读取失败：{e}"),
-            ManifestReadIssue::Malformed(e) => {
-                write!(f, "清单文件内容损坏或不完整：{e}")
+impl ManifestReadIssue {
+    /// 给用户看的一句话，跟随语言。
+    pub fn describe(&self, lang: Locale) -> String {
+        match (self, lang) {
+            (ManifestReadIssue::Unreadable(e), Locale::Zh) => format!("清单文件读取失败：{e}"),
+            (ManifestReadIssue::Unreadable(e), Locale::En) => {
+                format!("Could not read the manifest file: {e}")
             }
-            ManifestReadIssue::FutureVersion { found, supported } => write!(
-                f,
+            (ManifestReadIssue::Malformed(e), Locale::Zh) => {
+                format!("清单文件内容损坏或不完整：{e}")
+            }
+            (ManifestReadIssue::Malformed(e), Locale::En) => {
+                format!("The manifest file is corrupt or truncated: {e}")
+            }
+            (ManifestReadIssue::FutureVersion { found, supported }, Locale::Zh) => format!(
                 "清单由更新版本的程序生成（格式版本 {found}，本程序支持到 {supported}），请升级后再读"
             ),
+            (ManifestReadIssue::FutureVersion { found, supported }, Locale::En) => format!(
+                "This manifest was written by a newer build (format version {found}, this build supports up to {supported}) — please update first"
+            ),
         }
+    }
+}
+
+impl std::fmt::Display for ManifestReadIssue {
+    /// `Display` 恒为中文，理由同 [`crate::error::CoreError`]。
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.describe(Locale::Zh))
     }
 }
 

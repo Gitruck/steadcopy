@@ -111,11 +111,18 @@ python scripts/gen-licenses.py
 
 ## R12 校验码三处同步
 
-`release/SHA256SUMS.txt`、GitHub Releases 页、官网下载页三处对同一产物给出相同 SHA-256。
+`SHA256SUMS.txt`、GitHub Releases 页、`docs/verify-download.md` 三处对同一产物给出相同 SHA-256。
+
+校验码**不是手抄的**：它由打包流水线在出包的同一次运行里算出来（`scripts/build-release.py` 的
+`checksums()`，CI 里走 `scripts/package-extras.py`）。所以这一门要做的是「把它抄到另外两处」，
+不是「再算一遍」——再算一遍的前提是拿到的就是发出去的那批字节，而那正是这一门要证明的事。
 
 ```bash
-python scripts/gen-checksums.py
+# 看一眼流水线产的那份（CI 产物包里也有同一份）
+cat release/SHA256SUMS.txt
 ```
+
+原样复制进发布说明与 `docs/verify-download.md` 的「本次发布的校验码」一节。
 
 ## R13 未签名说明已就位
 
@@ -155,16 +162,28 @@ grep '!define PRODUCTNAME' app/src-tauri/target/release/nsis/x64/installer.nsi
 镜像目录挂在 NAS 上（`T:\web\broadcast\steadcopy` ↔ `https://api.ai-mcn.tv:9000/broadcast/steadcopy`），
 GitHub 托管跑器够不着，**这一步只能在发布机本地跑**：
 
+**分两步，中间隔着这份清单的其余各项。** 写下 `latest.json` 的那一瞬间，
+所有开着「检查更新」的客户端就能装到这一版了——镜像是 `endpoints[0]`，它说了算，
+GitHub 那边还是草稿**不作数**。清单先放出去的话，「草稿 Release」这道闸就形同虚设：
+R10 断网安装没过、R14 误报还没申报，版本却已经发给所有人了。
+
 ```bash
-# 产物用 CI 打的那批，不要本地重编——签名是对具体那批字节签的。
-# --zip 直接收 Actions 页面下载下来的产物包，不用自己解压（少一步就少一次「解错目录」）
+# 第一步：本清单其余各项之前跑。只传包，不动清单——传了也没人找得到
 python scripts/publish-mirror.py --zip <从 Actions 下载的产物包>
+
+# 第二步：R1–R15 全过之后再跑。这一步才是「发布」
+python scripts/publish-mirror.py --zip <同一个包> --publish-manifest
+
+# 万一放出去之后才发现问题
+python scripts/publish-mirror.py --rollback
 ```
+
+产物用 CI 打的那批，**不要本地重编**——签名是对具体那批字节签的，重编一次字节就变了。
 
 三条都要有结论：
 
-- **推上去了**：脚本先拿 `SHA256SUMS.txt` 核对源目录，再把两个安装包、两个 `.sig`
-  与 `latest.mirror.json`（改名为 `latest.json`）复制过去
+- **推上去了**：脚本先拿 `SHA256SUMS.txt` 核对源目录，再把两个安装包、两个 `.sig` 复制过去；
+  `latest.json` 只在第二步写
 - **回读确认**：脚本从 `https://api.ai-mcn.tv:9000/broadcast/steadcopy/latest.json` 取回清单并与刚发布的逐字比对，
   再对安装包发一次 Range 请求确认真能下。复制成功不等于发布成功——目录可能没被 web 服务收录、可能有缓存，
   而这一环断了只有客户端知道，客户端不会来告诉你

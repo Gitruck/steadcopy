@@ -68,10 +68,10 @@ impl Ejector for WindowsEjector {
                 None,
             )
         }
-        .map_err(|e| EjectError::Failed(format!("打不开卷：{e}")))?;
+        .map_err(|e| EjectError::Failed(format!("CreateFileW: {e}")))?;
 
         if handle == INVALID_HANDLE_VALUE {
-            return Err(EjectError::Failed("打不开卷".into()));
+            return Err(EjectError::Failed("CreateFileW: INVALID_HANDLE_VALUE".into()));
         }
 
         let result = run_steps(handle);
@@ -89,7 +89,10 @@ fn run_steps(handle: HANDLE) -> Result<(), EjectError> {
     }
     // 2. 卸载：把脏页刷下去。少了这一步，「弹出」只是把托盘图标去掉
     if !ioctl(handle, FSCTL_DISMOUNT_VOLUME, None) {
-        return Err(EjectError::Failed(format!("卸载卷失败（{}）", last_error())));
+        return Err(EjectError::Failed(format!(
+            "FSCTL_DISMOUNT_VOLUME: {}",
+            last_error()
+        )));
     }
     // 3. 允许取出介质
     let mut pmr = PREVENT_MEDIA_REMOVAL {
@@ -99,14 +102,17 @@ fn run_steps(handle: HANDLE) -> Result<(), EjectError> {
     let pmr_len = std::mem::size_of::<PREVENT_MEDIA_REMOVAL>() as u32;
     if !ioctl(handle, IOCTL_STORAGE_MEDIA_REMOVAL, Some((pmr_ptr, pmr_len))) {
         return Err(EjectError::Failed(format!(
-            "解除介质锁定失败（{}）",
+            "IOCTL_STORAGE_MEDIA_REMOVAL: {}",
             last_error()
         )));
     }
     // 4. 弹出。读卡器里的卡不一定有物理弹出动作，这一步失败不代表前三步白做——
     //    但也不能因此就报成功，如实返回
     if !ioctl(handle, IOCTL_STORAGE_EJECT_MEDIA, None) {
-        return Err(EjectError::Failed(format!("弹出失败（{}）", last_error())));
+        return Err(EjectError::Failed(format!(
+            "IOCTL_STORAGE_EJECT_MEDIA: {}",
+            last_error()
+        )));
     }
     Ok(())
 }

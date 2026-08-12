@@ -15,6 +15,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+use crate::i18n::Locale;
 use crate::manifest::store::format_time;
 
 /// 台账 schema 版本。升级 MUST 保留既有记录。
@@ -31,22 +32,39 @@ pub enum LedgerError {
     FutureSchema { found: i64, supported: i64 },
 }
 
-impl std::fmt::Display for LedgerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LedgerError::Open { path, reason } => write!(
-                f,
+impl LedgerError {
+    /// 给用户看的一句话，跟随语言。
+    pub fn describe(&self, lang: Locale) -> String {
+        match (self, lang) {
+            (LedgerError::Open { path, reason }, Locale::Zh) => format!(
                 "任务台账打不开（{}）：{reason}。\
                  请确认文件未被占用；若确已损坏，把它改名备份后本程序会新建一份，\
                  但**旧的历史不会自动恢复**，请先留好备份",
                 path.display()
             ),
-            LedgerError::Query(e) => write!(f, "台账查询失败：{e}"),
-            LedgerError::FutureSchema { found, supported } => write!(
-                f,
+            (LedgerError::Open { path, reason }, Locale::En) => format!(
+                "Could not open the task ledger ({}): {reason}. \
+                 Make sure the file is not in use; if it really is damaged, rename it aside and \
+                 a fresh one will be created — but **the old history will not come back**, \
+                 so keep that backup",
+                path.display()
+            ),
+            (LedgerError::Query(e), Locale::Zh) => format!("台账查询失败：{e}"),
+            (LedgerError::Query(e), Locale::En) => format!("The ledger query failed: {e}"),
+            (LedgerError::FutureSchema { found, supported }, Locale::Zh) => format!(
                 "任务台账由更新版本的程序建立（结构版本 {found}，本程序支持到 {supported}），请升级后再打开"
             ),
+            (LedgerError::FutureSchema { found, supported }, Locale::En) => format!(
+                "This task ledger was created by a newer build (schema version {found}, this build supports up to {supported}) — please update first"
+            ),
         }
+    }
+}
+
+impl std::fmt::Display for LedgerError {
+    /// `Display` 恒为中文，理由同 [`crate::error::CoreError`]。
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.describe(Locale::Zh))
     }
 }
 

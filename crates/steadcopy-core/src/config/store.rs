@@ -9,6 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::model::{Config, ConfigError, CONFIG_VERSION};
+use crate::i18n::Locale;
 
 const FILE_NAME: &str = "config.json";
 const APP_DIR: &str = "steadcopy";
@@ -26,22 +27,42 @@ pub enum ConfigLoadError {
     FutureVersion { found: u32, supported: u32 },
 }
 
-impl std::fmt::Display for ConfigLoadError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ConfigLoadError::Unreadable(e) => write!(f, "配置文件读取失败：{e}"),
-            ConfigLoadError::Corrupt { reason, backup } => {
-                write!(f, "配置文件内容损坏：{reason}")?;
-                if let Some(b) = backup {
-                    write!(f, "。原文件已保留在 {}，可据以人工恢复", b.display())?;
-                }
-                Ok(())
+impl ConfigLoadError {
+    /// 给用户看的一句话，跟随语言。
+    pub fn describe(&self, lang: Locale) -> String {
+        match (self, lang) {
+            (ConfigLoadError::Unreadable(e), Locale::Zh) => format!("配置文件读取失败：{e}"),
+            (ConfigLoadError::Unreadable(e), Locale::En) => {
+                format!("Could not read the configuration file: {e}")
             }
-            ConfigLoadError::FutureVersion { found, supported } => write!(
-                f,
+            (ConfigLoadError::Corrupt { reason, backup }, Locale::Zh) => match backup {
+                Some(b) => format!(
+                    "配置文件内容损坏：{reason}。原文件已保留在 {}，可据以人工恢复",
+                    b.display()
+                ),
+                None => format!("配置文件内容损坏：{reason}"),
+            },
+            (ConfigLoadError::Corrupt { reason, backup }, Locale::En) => match backup {
+                Some(b) => format!(
+                    "The configuration file is corrupt: {reason}. The original was kept at {} so it can be recovered by hand",
+                    b.display()
+                ),
+                None => format!("The configuration file is corrupt: {reason}"),
+            },
+            (ConfigLoadError::FutureVersion { found, supported }, Locale::Zh) => format!(
                 "配置由更新版本的程序写入（格式版本 {found}，本程序支持到 {supported}），请升级后再打开"
             ),
+            (ConfigLoadError::FutureVersion { found, supported }, Locale::En) => format!(
+                "This configuration was written by a newer build (format version {found}, this build supports up to {supported}) — please update first"
+            ),
         }
+    }
+}
+
+impl std::fmt::Display for ConfigLoadError {
+    /// `Display` 恒为中文，理由同 [`crate::error::CoreError`]。
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.describe(Locale::Zh))
     }
 }
 
@@ -159,12 +180,24 @@ pub enum SaveError {
     Io(String),
 }
 
-impl std::fmt::Display for SaveError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SaveError::Invalid(e) => write!(f, "{e}"),
-            SaveError::Io(e) => write!(f, "配置写入失败：{e}"),
+impl SaveError {
+    /// 给用户看的一句话，跟随语言。
+    pub fn describe(&self, lang: Locale) -> String {
+        match (self, lang) {
+            // 校验失败原样转交 ConfigError——那句话本来就是给用户看的，再包一层只会更远
+            (SaveError::Invalid(e), lang) => e.describe(lang),
+            (SaveError::Io(e), Locale::Zh) => format!("配置写入失败：{e}"),
+            (SaveError::Io(e), Locale::En) => {
+                format!("Could not write the configuration file: {e}")
+            }
         }
+    }
+}
+
+impl std::fmt::Display for SaveError {
+    /// `Display` 恒为中文，理由同 [`crate::error::CoreError`]。
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.describe(Locale::Zh))
     }
 }
 

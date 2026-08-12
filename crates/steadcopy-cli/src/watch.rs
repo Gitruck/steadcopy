@@ -14,7 +14,7 @@ use steadcopy_core::platform::{volume_io, Clock, SystemClock};
 use steadcopy_core::preset::{on_arrival, ArrivalOutcome};
 use steadcopy_core::task::run_task;
 
-use crate::output::{human_bytes, Emitter, ExitKind};
+use crate::output::{human_bytes, lang, w, Emitter, ExitKind};
 
 /// 把一个普通目录伪装成到达的源设备。
 ///
@@ -24,8 +24,14 @@ use crate::output::{human_bytes, Emitter, ExitKind};
 /// 该入口不在 GUI 中暴露。
 fn simulated_volume(path: &std::path::Path) -> Result<Volume, String> {
     if !path.is_dir() {
-        return Err(format!("模拟设备目录不存在：{}", path.display()));
+        return Err(wf!(
+            "模拟设备目录不存在：{}",
+            "The simulated device directory does not exist: {}",
+            path.display()
+        ));
     }
+    // 目录名取不到时的兜底卷标是**设备的名字**（数据），不随界面语言变——
+    // 变了会让同一个目录在两种语言下算出不同的复合身份，记忆库就对不上了
     let label = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -56,7 +62,7 @@ pub fn run(
     yes: bool,
     simulate: Option<&std::path::Path>,
 ) -> Result<ExitKind, String> {
-    let mut cfg = config::load().map_err(|e| e.to_string())?;
+    let mut cfg = config::load().map_err(|e| e.describe(lang()))?;
     guard_config(&cfg, out)?;
 
     let io = volume_io();
@@ -70,14 +76,18 @@ pub fn run(
     }
 
     let mut watcher = device_watcher();
-    let rx = watcher.subscribe().map_err(|e| e.to_string())?;
+    let rx = watcher.subscribe().map_err(|e| e.describe(lang()))?;
 
     out.watch_ready(&cfg, &config::config_path().display().to_string());
 
     // 启动时先把已经插着的设备过一遍——用户可能先插卡后开程序
     // 枚举失败不能静默变成「没有设备」——那会让 watch 看起来在跑其实什么也收不到
     let initial = enumerate_volumes().unwrap_or_else(|e| {
-        out.warn(&format!("枚举卷失败：{e}"));
+        out.warn(&wf!(
+            "枚举卷失败：{}",
+            "Could not enumerate volumes: {}",
+            e.describe(lang())
+        ));
         Vec::new()
     });
     for vol in initial {
@@ -146,7 +156,11 @@ fn handle(
 
     // 首次见到的设备已被登记，配置要落盘，否则下次又是新设备
     if let Err(e) = config::save(cfg) {
-        out.error(&format!("配置保存失败：{e}"));
+        out.error(&wf!(
+            "配置保存失败：{}",
+            "Could not save the configuration: {}",
+            e.describe(lang())
+        ));
     }
 
     if !outcome.needs_attention() {
@@ -166,14 +180,14 @@ fn handle(
 
     // 档位：确认档要点一次；`--yes` 或无人值守档直接跑
     if requires_confirmation && !yes && !confirm(&plan)? {
-        out.note("已跳过本次拷贝");
+        out.note(w("已跳过本次拷贝", "Skipped this copy"));
         return Ok(());
     }
 
     let cancel = CancelToken::new();
     let report = {
         let mut sink = out.progress_sink();
-        run_task(&spec, &plan, io, clock, &cancel, &mut sink).map_err(|e| e.to_string())?
+        run_task(&spec, &plan, io, clock, &cancel, &mut sink).map_err(|e| e.describe(lang()))?
     };
     out.report(&report);
     Ok(())
@@ -182,12 +196,21 @@ fn handle(
 fn confirm(plan: &steadcopy_core::task::TaskPlan) -> Result<bool, String> {
     if !std::io::stdin().is_terminal() {
         // 非交互环境（脚本/服务）不能假装用户点了确认
-        return Err("当前不是交互终端，无法确认。用 --yes 显式授权，或在界面里操作".into());
+        return Err(w(
+            "当前不是交互终端，无法确认。用 --yes 显式授权，或在界面里操作",
+            "This is not an interactive terminal, so nothing can be confirmed. \
+             Pass --yes to authorise explicitly, or do it in the app",
+        )
+        .into());
     }
     eprint!(
-        "\n即将拷贝 {} 个文件 · {}。开始吗？[y/N] ",
-        plan.files.len(),
-        human_bytes(plan.total_bytes())
+        "\n{} ",
+        wf!(
+            "即将拷贝 {} 个文件 · {}。开始吗？[y/N]",
+            "About to copy {} file(s) · {}. Start? [y/N]",
+            plan.files.len(),
+            human_bytes(plan.total_bytes())
+        )
     );
     let _ = std::io::stderr().flush();
     let mut line = String::new();
@@ -200,13 +223,25 @@ fn confirm(plan: &steadcopy_core::task::TaskPlan) -> Result<bool, String> {
 /// 守候前的配置自检——没配好就直说，别让用户插了卡才发现没反应。
 fn guard_config(cfg: &Config, out: &mut Emitter) -> Result<(), String> {
     if cfg.projects.is_empty() {
-        return Err("还没有任何项目。先用 `steadcopy project add` 建一个，再来守候".into());
+        return Err(w(
+            "还没有任何项目。先用 `steadcopy project add` 建一个，再来守候",
+            "No projects yet. Create one with `steadcopy project add` before watching",
+        )
+        .into());
     }
     if cfg.presets.iter().filter(|p| p.enabled).count() == 0 {
-        return Err("还没有启用的预设任务。先用 `steadcopy preset add` 配一条".into());
+        return Err(w(
+            "还没有启用的预设任务。先用 `steadcopy preset add` 配一条",
+            "No preset is enabled. Add one with `steadcopy preset add`",
+        )
+        .into());
     }
     if cfg.settings.arrival_mode() == ArrivalMode::Unattended {
-        out.warn("危险区「跳过插卡确认」已开启：插卡将直接开始拷贝，不再询问");
+        out.warn(w(
+            "危险区「跳过插卡确认」已开启：插卡将直接开始拷贝，不再询问",
+            "Danger zone \"skip arrival confirmation\" is on: inserting a card starts copying \
+             right away, with no prompt",
+        ));
     }
     Ok(())
 }

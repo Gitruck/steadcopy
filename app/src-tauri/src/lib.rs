@@ -11,10 +11,12 @@
 #[cfg(test)]
 mod flavor_guard;
 mod update_origin;
+mod update_verify;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use steadcopy_core::config::{self, model::DestinationConfig, model::Project, Config};
@@ -160,7 +162,7 @@ fn device_view(v: &Volume, cfg: &Config) -> DeviceView {
         id,
         root: v.root_path().display().to_string(),
         file_system: v.file_system.clone(),
-        bus: v.bus_type.label().to_string(),
+        bus: v.bus_type.label(lang).to_string(),
         total_bytes: v.total_bytes,
         free_bytes: v.free_bytes,
         is_system: v.is_system,
@@ -255,7 +257,9 @@ fn get_config() -> Result<Config, String> {
 #[tauri::command]
 fn save_settings(mut settings: steadcopy_core::config::Settings) -> Result<(), String> {
     // 倒计时下限在这里**硬拒**。界面上的 input 拦不住任何人，后端拦得住。
-    settings.countdown_secs = validate_countdown(settings.countdown_secs)?;
+    // 语言取**将要保存的那份**设置，而不是当前生效的——用户可能正在同一次保存里改语言
+    let lang = Locale::resolve(&settings.locale);
+    settings.countdown_secs = validate_countdown(settings.countdown_secs, lang)?;
     let mut c = load_cfg()?;
     c.settings = settings;
     save_cfg(&c)
@@ -1227,7 +1231,7 @@ fn propose_format_if_green(
     if decision != AutoFormatDecision::Propose {
         // 开着开关却没提议时，把原因说出来——「为什么没弹」比「弹不弹」更需要答案
         if cfg.settings.format_after_copy {
-            let _ = app.emit("task-notice", decision.reason().to_string());
+            let _ = app.emit("task-notice", decision.reason(lang()).to_string());
         }
         return false;
     }
@@ -1452,7 +1456,7 @@ fn check_format(device_root: String) -> Result<FormatSafetyView, String> {
         .unwrap_or_else(|| vol.display_name());
 
     // 先跑便宜的 G1–G3；不过就别去扫整卷了
-    let cheap = check_safety(&vol, &dest_roots, false, None, &[]);
+    let cheap = check_safety(&vol, &dest_roots, false, None, &[], lang());
     if cheap.checks.iter().any(|c| !c.passed && c.id != "G4") {
         return Ok(FormatSafetyView {
             passed: false,
@@ -1473,7 +1477,7 @@ fn check_format(device_root: String) -> Result<FormatSafetyView, String> {
         .collect();
     let l = ledger()?;
     let evidence = find_backup_evidence(&l, &device_id);
-    let report = check_safety(&vol, &dest_roots, false, evidence.as_ref(), &current);
+    let report = check_safety(&vol, &dest_roots, false, evidence.as_ref(), &current, lang());
     Ok(FormatSafetyView {
         passed: report.passed(),
         report,
@@ -1558,7 +1562,7 @@ fn do_format(device_root: String, typed_label: String) -> Result<(), String> {
     let l = ledger()?;
     let evidence = find_backup_evidence(&l, &device_id);
     // **检查链在执行前必跑一遍**——前端点过什么不作数
-    let report = check_safety(&vol, &dest_roots, false, evidence.as_ref(), &current);
+    let report = check_safety(&vol, &dest_roots, false, evidence.as_ref(), &current, lang());
     let attempt = config::new_id("fmt");
     let now = SystemClock.now();
 
@@ -1599,7 +1603,7 @@ fn do_format(device_root: String, typed_label: String) -> Result<(), String> {
 
 #[tauri::command]
 fn validate_countdown_secs(secs: u32) -> Result<u32, String> {
-    validate_countdown(secs)
+    validate_countdown(secs, lang())
 }
 
 // ---------------------------------------------------------------- 交给系统打开
@@ -1701,22 +1705,97 @@ struct UpdateInfo {
     date: Option<String>,
 }
 
+/// 查更新的超时。镜像挂在自建 NAS 的非标端口上，「连得上但不应答」是真实存在的
+/// 故障态（负载高、被中间设备挂住、只丢包不 RST）。没有超时的话按钮会永久卡在
+/// 「检查中…」，用户只能重启程序——而他并不知道是网络问题还是程序死了。
+const CHECK_TIMEOUT_SECS: u64 = 15;
+
+/// 下载安装包的超时。与查更新分开是因为 `RequestBuilder::timeout` 管的是**整个请求**，
+/// 包括读完 body——用 15 秒会把慢网上的正常下载一起掐死。
+/// 到这一步用户已经点过「安装」、知道在下东西了，等得起。
+const DOWNLOAD_TIMEOUT_SECS: u64 = 600;
+
+/// 建一个更新器。
+///
+/// 两件默认值必须改掉：
+/// - **超时**：`UpdaterBuilder` 默认 `None`，reqwest 也默认不超时，等于没有上界。
+/// - **重定向**：reqwest 默认跟随 10 跳且不看主机。只在第一跳查白名单是纸面防线，
+///   见 `update_origin::redirect_policy`。
+fn updater_for(app: &AppHandle, timeout: Duration) -> Result<tauri_plugin_updater::Updater, String> {
+    app.updater_builder()
+        .timeout(timeout)
+        .configure_client(|b| b.redirect(update_origin::redirect_policy()))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// 把 updater 的错误翻成人话。
+///
+/// 直接 `e.to_string()` 透出去的后果：中文界面上甩一句
+/// `Could not fetch a valid release JSON from the remote`——别处错误全走 `pick()`，
+/// 唯独这里是英文原文。更糟的是连不上时 reqwest 会把**镜像的域名和端口**
+/// 一起印进错误串给用户看，而那是内部基础设施。
+fn update_error(e: &tauri_plugin_updater::Error, lang: Locale) -> String {
+    use tauri_plugin_updater::Error;
+    match e {
+        // 两个端点都没给出可用的清单。最常见的成因就是网络不通或还没发过版
+        Error::ReleaseNotFound => lang.pick(
+            "取不到更新信息：更新源都没有应答，或者还没有发布过版本。过会儿再试",
+            "Could not reach any update source. They may be unreachable, or nothing has been published yet. Try again later",
+        ).to_string(),
+        Error::Network(_) | Error::Reqwest(_) => lang.pick(
+            "连不上更新源。检查一下网络，或者过会儿再试",
+            "Could not connect to the update source. Check your network and try again",
+        ).to_string(),
+        Error::Io(_) => lang.pick(
+            "写入更新包时出错：磁盘可能满了，或者文件被占用",
+            "Failed to write the update package. The disk may be full, or the file is in use",
+        ).to_string(),
+        // 验签失败是最该说清楚的一类：它意味着拿到的字节不是发布密钥签的
+        Error::Minisign(_) | Error::SignatureUtf8(_) | Error::Base64(_) => lang.pick(
+            "更新包验签失败，已拒绝安装——包不是由发布密钥签名的，或者在传输中被改过",
+            "Signature check failed; refused to install. The package was not signed by the release key, or was altered in transit",
+        ).to_string(),
+        // 剩下的（清单格式不对、平台缺条目等）没法给出更具体的指引，
+        // 但仍然不把原文透出去——那是给日志看的，不是给用户看的
+        _ => lang.pick(
+            "更新失败。详情见日志",
+            "The update failed. See the log for details",
+        ).to_string(),
+    }
+}
+
 /// 查一次有没有新版本。**只有用户按了按钮才会走到这里。**
 #[tauri::command]
 async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
     let cfg = load_cfg()?;
+    let lang = Locale::resolve(&cfg.settings.locale);
     if !cfg.settings.update_check {
         // 关掉之后连请求都不该发出去，而不是「发了但不提示」
-        return Err(steadcopy_core::i18n::Locale::resolve(&cfg.settings.locale)
+        return Err(lang
             .pick(
                 "更新检查已在设置里关闭",
                 "Update checking is turned off in settings",
             )
             .to_string());
     }
+    if config::is_portable() {
+        return Err(portable_no_update(lang));
+    }
 
     let current = env!("CARGO_PKG_VERSION").to_string();
-    let updater = app.updater().map_err(|e| e.to_string())?;
+
+    // 上一次点安装的结果先核对。对不上就**停在这儿**——
+    // 不停的话就是那个循环：更新源说 9.9.9，装上的是旧版，下次再查还是 9.9.9，
+    // 于是反复重装，永远停在旧版，而用户只看到「更新好像没用」。
+    if let Some(anomaly) = update_verify::take_anomaly(&current) {
+        let mut c = load_cfg()?;
+        c.settings.update_check = false;
+        save_cfg(&c)?;
+        return Err(anomaly.describe(lang));
+    }
+
+    let updater = updater_for(&app, Duration::from_secs(CHECK_TIMEOUT_SECS))?;
     match updater.check().await {
         Ok(Some(u)) => Ok(UpdateInfo {
             available: true,
@@ -1732,8 +1811,26 @@ async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
             notes: None,
             date: None,
         }),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(update_error(&e, lang)),
     }
+}
+
+/// 便携版为什么不能走更新器。
+///
+/// 更新清单只指一个包，而那是 **NSIS 安装包**。便携版用户点下去的结果是：
+/// 安装包装进 `%LOCALAPPDATA%\Programs\稳拷`、重启的是**新装的那份**，
+/// 而便携目录原封不动还是旧版。更要命的是新装的那份旁边没有便携标记，
+/// 配置目录从 `<便携目录>\data` 切到 `%APPDATA%`——项目、预设、设备记忆、
+/// 任务台账在用户眼里**全部消失**。
+///
+/// 便携版的更新方式就是「下载新的 zip 覆盖」，这也符合它「解压即用、删文件夹即卸载」
+/// 的性质：它本来就不该往系统里装东西。
+fn portable_no_update(lang: Locale) -> String {
+    lang.pick(
+        "便携版不走自动更新——请直接下载新版压缩包覆盖当前文件夹，你的数据都在同目录的 data\\ 里，不会丢",
+        "The portable build does not auto-update. Download the new zip and replace this folder; your data lives in data\\ next to the executable and is not affected",
+    )
+    .to_string()
 }
 
 /// 下载并安装。**必须由用户在看到版本号之后再点一次**——
@@ -1749,6 +1846,9 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
                 "Update checking is turned off in settings",
             )
             .to_string());
+    }
+    if config::is_portable() {
+        return Err(portable_no_update(lang));
     }
     // 有任务在跑就不装——装更新会重启程序，正在拷的卡就断在半路
     let running = app
@@ -1766,8 +1866,8 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
             .to_string());
     }
 
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+    let updater = updater_for(&app, Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))?;
+    let Some(update) = updater.check().await.map_err(|e| update_error(&e, lang))? else {
         return Err(lang
             .pick("已经是最新版本", "Already on the latest version")
             .to_string());
@@ -1783,11 +1883,16 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         ).to_string());
     }
 
+    // 记下「更新源答应的版本」与「现在的版本」，重启后核对。
+    // 验签保证不了这件事：它签的是安装包的字节，清单里的 version 是明文、不受签名保护。
+    // 见 update_verify 模块头。
+    update_verify::record_promised(&update.version, env!("CARGO_PKG_VERSION"));
+
     // 验签由 updater 用编译进程序的公钥做；签名对不上这里就会失败
     update
         .download_and_install(|_, _| {}, || {})
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| update_error(&e, lang))?;
     app.restart();
 }
 

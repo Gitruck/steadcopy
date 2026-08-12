@@ -18,7 +18,7 @@ use steadcopy_core::manifest::{load_manifests, Manifest};
 use steadcopy_core::organize::{scan_source, ScanOptions};
 use steadcopy_core::platform::{Clock, SystemClock};
 
-use crate::output::{Emitter, ExitKind};
+use crate::output::{lang, w, Emitter, ExitKind};
 
 /// 危险确认参数的字面量。刻意冗长。
 pub const DANGER_FLAG: &str = "--yes-i-know-this-erases-data";
@@ -30,14 +30,19 @@ pub fn run(
     countdown: Option<u32>,
 ) -> Result<ExitKind, String> {
     if !confirmed {
-        return Err(format!(
+        return Err(wf!(
             "格式化会**永久抹掉**卡上的全部数据，默认不执行。\n\
-             确实要格，请显式加上 {DANGER_FLAG}"
+             确实要格，请显式加上 {}",
+            "Formatting **permanently erases** everything on the card, so it does not run by \
+             default.\n\
+             If you really mean it, pass {} explicitly",
+            DANGER_FLAG
         ));
     }
 
-    let cfg = config::load().map_err(|e| e.to_string())?;
-    let secs = validate_countdown(countdown.unwrap_or(cfg.settings.countdown_secs))?;
+    let lang = lang();
+    let cfg = config::load().map_err(|e| e.describe(lang))?;
+    let secs = validate_countdown(countdown.unwrap_or(cfg.settings.countdown_secs), lang)?;
 
     let vol = find_volume(target)?;
     let dest_roots: Vec<std::path::PathBuf> = cfg
@@ -52,24 +57,24 @@ pub fn run(
         .map(|d| d.display_name())
         .unwrap_or_else(|| vol.display_name());
 
-    let ledger = Ledger::open_default().map_err(|e| e.to_string())?;
+    let ledger = Ledger::open_default().map_err(|e| e.describe(lang))?;
     let now0 = SystemClock.now();
 
     // **先跑便宜的 G1–G3。** 扫描整卷是昂贵操作（对着系统盘能跑到天荒地老），
     // 在确认目标合法之前绝不做——顺序错了不只是慢，是拿危险目标当正常目标对待。
-    let cheap = check_safety(&vol, &dest_roots, false, None, &[]);
+    let cheap = check_safety(&vol, &dest_roots, false, None, &[], lang);
     if let Some(f) = cheap
         .checks
         .iter()
         .find(|c| !c.passed && c.id != "G4")
     {
         out.safety(&cheap, &device_name);
-        let reason = format!("{}：{}", f.id, f.detail);
+        let reason = format!("{} {}", f.id, f.detail);
         let _ = ledger.record_format_attempt(
             &new_id("fmt"), now0, &device_id, &device_name, "cli",
             &cheap.compact(), None, "rejected", Some(&reason),
         );
-        return Err(format!("格式化被拒绝——{reason}"));
+        return Err(rejected(&reason));
     }
 
     // G1–G3 都过了，才值得花时间扫卡内容供 G4 判定
@@ -79,7 +84,7 @@ pub fn run(
         .map(|f| f.relative_path)
         .collect();
     let evidence = find_backup_evidence(&ledger, &device_id);
-    let report = check_safety(&vol, &dest_roots, false, evidence.as_ref(), &current);
+    let report = check_safety(&vol, &dest_roots, false, evidence.as_ref(), &current, lang);
     out.safety(&report, &device_name);
 
     let attempt_id = new_id("fmt");
@@ -88,14 +93,20 @@ pub fn run(
     if !report.passed() {
         let reason = report
             .first_failure()
-            .map(|c| format!("{}：{}", c.id, c.detail))
-            .unwrap_or_else(|| "安全检查未通过（未能定位到具体是哪一项）".to_string());
+            .map(|c| format!("{} {}", c.id, c.detail))
+            .unwrap_or_else(|| {
+                w(
+                    "安全检查未通过（未能定位到具体是哪一项）",
+                    "A safety check did not pass (could not tell which one)",
+                )
+                .to_string()
+            });
         // 被拒的尝试同样留痕
         let _ = ledger.record_format_attempt(
             &attempt_id, now, &device_id, &device_name, "cli",
             &report.compact(), report.backup_task_id.as_deref(), "rejected", Some(&reason),
         );
-        return Err(format!("格式化被拒绝——{reason}"));
+        return Err(rejected(&reason));
     }
 
     // 倒计时 + 输卷标：三重确认里的后两重
@@ -104,16 +115,19 @@ pub fn run(
             &attempt_id, now, &device_id, &device_name, "cli",
             &report.compact(), report.backup_task_id.as_deref(), "cancelled", None,
         );
-        out.note("已取消，未做任何改动");
+        out.note(w("已取消，未做任何改动", "Cancelled — nothing was changed"));
         return Ok(ExitKind::Cancelled);
     }
 
     let f = formatter();
     let root = vol.root_path().display().to_string();
-    let params = f.read_params(&root).map_err(|e| e.to_string())?;
-    out.note(&format!(
+    let params = f.read_params(&root).map_err(|e| e.describe(lang))?;
+    out.note(&wf!(
         "正在格式化 {}（保留 {} 与卷标「{}」）…",
-        root, params.file_system, params.label
+        "Formatting {} (keeping {} and the label \"{}\")...",
+        root,
+        params.file_system,
+        params.label
     ));
 
     match f.quick_format(&params) {
@@ -122,22 +136,28 @@ pub fn run(
                 &attempt_id, SystemClock.now(), &device_id, &device_name, "cli",
                 &report.compact(), report.backup_task_id.as_deref(), "ok", None,
             );
-            out.note("格式化完成");
+            out.note(w("格式化完成", "Format complete"));
             Ok(ExitKind::Ok)
         }
         Err(e) => {
-            let msg = e.to_string();
+            let msg = e.describe(lang);
             let _ = ledger.record_format_attempt(
                 &attempt_id, SystemClock.now(), &device_id, &device_name, "cli",
                 &report.compact(), report.backup_task_id.as_deref(), "failed", Some(&msg),
             );
-            Err(format!("格式化失败：{msg}"))
+            Err(wf!("格式化失败：{}", "Format failed: {}", msg))
         }
     }
 }
 
+/// 被拒时的统一表述。**理由一定要指出是哪一道闸门**——
+/// 只说「被拒绝」，用户下一步无从下手。
+fn rejected(reason: &str) -> String {
+    wf!("格式化被拒绝——{}", "Format refused — {}", reason)
+}
+
 fn find_volume(target: &str) -> Result<Volume, String> {
-    let vols = enumerate_volumes().map_err(|e| e.to_string())?;
+    let vols = enumerate_volumes().map_err(|e| e.describe(lang()))?;
     vols.into_iter()
         .find(|v| {
             v.guid_path.eq_ignore_ascii_case(target)
@@ -147,7 +167,7 @@ fn find_volume(target: &str) -> Result<Volume, String> {
                     .as_deref()
                     == Some(&target.to_ascii_uppercase())
         })
-        .ok_or_else(|| format!("找不到这个卷：{target}"))
+        .ok_or_else(|| wf!("找不到这个卷：{}", "No such volume: {}", target))
 }
 
 /// 找该设备最近一次「完成且全部校验通过」的备份作为 G4 依据。
@@ -193,31 +213,48 @@ fn find_backup_evidence(ledger: &Ledger, device_id: &str) -> Option<BackupEviden
 fn confirm_interactively(out: &mut Emitter, vol: &Volume, secs: u32) -> Result<bool, String> {
     if !std::io::stdin().is_terminal() {
         // 非交互环境不能假装用户确认过
-        return Err("当前不是交互终端，无法完成格式化确认。请在界面里操作".into());
+        return Err(w(
+            "当前不是交互终端，无法完成格式化确认。请在界面里操作",
+            "This is not an interactive terminal, so the format cannot be confirmed. \
+             Do it in the app",
+        )
+        .into());
     }
 
-    out.warn(&format!(
+    out.warn(&wf!(
         "即将格式化「{}」（{}，{}）。此操作**不可撤销**。",
+        "About to format \"{}\" ({}, {}). This **cannot be undone**.",
         vol.display_name(),
         vol.file_system,
         vol.label
     ));
-    // 无卷标的卡用固定词，否则「输入卷标」会退化成直接回车
+    // 无卷标的卡用固定词，否则「输入卷标」会退化成直接回车。
+    // 这个词**不随语言变**（它是 label_matches 的判据），英文提示里也原样摆出来给人照抄
     let phrase = confirmation_phrase(&vol.label);
-    eprint!("请输入「{phrase}」以确认：");
+    eprint!(
+        "{}",
+        wf!("请输入「{}」以确认：", "Type \"{}\" to confirm: ", phrase)
+    );
     let _ = std::io::stderr().flush();
     let mut line = String::new();
     std::io::stdin()
         .read_line(&mut line)
         .map_err(|e| e.to_string())?;
     if !label_matches(&line, &vol.label) {
-        out.note("卷标不匹配");
+        out.note(w("卷标不匹配", "The label does not match"));
         return Ok(false);
     }
 
     // 冷静期：倒计时期间可以 Ctrl-C 退出
     for left in (1..=secs).rev() {
-        eprint!("\r{left} 秒后开始格式化，现在按 Ctrl-C 还来得及…   ");
+        eprint!(
+            "\r{}   ",
+            wf!(
+                "{} 秒后开始格式化，现在按 Ctrl-C 还来得及…",
+                "Formatting starts in {}s — Ctrl-C still works",
+                left
+            )
+        );
         let _ = std::io::stderr().flush();
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
