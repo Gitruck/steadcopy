@@ -415,6 +415,8 @@ export const api = {
     invoke<MapView>("map_template_apply", { templateId }),
   mapTemplateDelete: (templateId: string) =>
     invoke<MapView>("map_template_delete", { templateId }),
+  /** 清空当前项目的导图。磁盘与模板都不动，只归零画布。 */
+  mapClear: () => invoke<MapView>("map_clear"),
 
   // 台账
   listHistory: (onlyFailed = false, limit?: number) =>

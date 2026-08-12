@@ -349,7 +349,7 @@ export const en: Record<Key, string> = {
   "update.installing": "Downloading…",
   "update.willRestart": "The app restarts after installing. Nothing installs unless you say so.",
 
-  "nav.map": "Map",
+  "nav.map": "Map (Beta)",
   "map.needProject":
     "No project yet — create one under Settings → Projects first; the map lives on a project.",
   "map.emptyTitle": "Draw your folder structure",
@@ -387,6 +387,8 @@ export const en: Record<Key, string> = {
   "map.templateSaveAs": "Save as template…",
   "map.templateName": "Template name",
   "map.templateSave": "Save",
+  "map.clearMap": "New map",
+  "map.clearMapConfirm": "Clear the whole tree and every connection on this canvas? Folders on disk are untouched, and saved templates stay.",
   "map.refresh": "Refresh nodes",
   "map.refreshTitle": "New folders about to join the map",
   "map.refreshHint":
@@ -395,6 +397,8 @@ export const en: Record<Key, string> = {
   "map.refreshSkipped":
     "These folders cannot join the map (their names are not valid node names); the rest are unaffected:",
   "map.refreshSkippedLine": "{path} — {reason}",
+  "map.refreshShowAll": "Show all {n}",
+  "map.refreshCollapse": "Collapse",
   "map.refreshApply": "Merge into map",
   "map.refreshApplied": "New folders merged into the map",
   "map.running": "Copying: {device}",

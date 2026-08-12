@@ -1481,6 +1481,27 @@ fn map_template_apply(template_id: String) -> Result<MapView, String> {
     Ok(map_view_of(&cfg))
 }
 
+/// 清空当前项目的导图（节点与连线一起）。
+///
+/// 「新建导图」按钮走这里。磁盘完全不动——导图从不删用户文件；
+/// 已存的模板也不动，想找回结构套用模板即可。确认框在前端，但清空这个动作
+/// 本身幂等且无损，不设第二道闸。
+#[tauri::command]
+fn map_clear() -> Result<MapView, String> {
+    let mut cfg = load_cfg()?;
+    let lang = lang_of(&cfg);
+    let pid = cfg
+        .effective_project()
+        .map(|p| p.id.clone())
+        .ok_or_else(|| map_no_project(lang))?;
+    let project = cfg.project_mut(&pid).ok_or_else(|| map_no_project(lang))?;
+    if let Some(m) = project.map.as_mut() {
+        m.clear();
+    }
+    save_cfg(&cfg)?;
+    Ok(map_view_of(&cfg))
+}
+
 #[tauri::command]
 fn map_template_delete(template_id: String) -> Result<MapView, String> {
     let mut cfg = load_cfg()?;
@@ -2755,6 +2776,7 @@ pub fn run() {
             map_template_save,
             map_template_apply,
             map_template_delete,
+            map_clear,
             list_history,
             task_files,
             clear_history,

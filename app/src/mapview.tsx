@@ -26,6 +26,9 @@ const ROW = NODE_H + 14;
 // 连线色板轮转。取既有语义色变量、刻意没有绿——styles.css 的无绿闸门拦着；
 // 颜色也不是唯一载体：每根线的车道口都挂着设备名标签
 const LINE_COLORS = ["var(--running)", "var(--warn)", "var(--accent)"];
+/** 刷新清单折叠时露几条。5 条够判断「这批是不是我要的」，又不至于占半屏。 */
+const REFRESH_PREVIEW_COLLAPSED = 5;
+
 const DEV_MIME = "application/x-steadcopy-device";
 
 type Pos = { x: number; y: number };
@@ -84,6 +87,9 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
   const [addVal, setAddVal] = useState("");
   const [notices, setNotices] = useState<Notice[]>([]);
   const [refreshList, setRefreshList] = useState<MapRefreshPreview | null>(null);
+  // 刷新清单默认折叠：真实盘上动辄几十上百个目录，全铺开会把画布挤出屏幕。
+  // 折叠展示前几条 + 总数，看全靠「显示全部」，收回靠「收起」。
+  const [refreshExpanded, setRefreshExpanded] = useState(false);
   const [tplSel, setTplSel] = useState("");
   const [savingTpl, setSavingTpl] = useState(false);
   const [tplName, setTplName] = useState("");
@@ -444,6 +450,7 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
       const r = await api.mapRefreshPreview();
       if (r.additions.length === 0 && r.skipped.length === 0) {
         setNotices([{ kind: "ok", text: t("map.refreshNothing") }]);
+        setRefreshExpanded(false);
         setRefreshList(null);
       } else {
         // 就算一条可并入的都没有，也要把「无法并入」的列出来——
@@ -466,6 +473,12 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
     } catch (e) {
       onError(String(e));
     }
+  };
+
+  const clearMap = () => {
+    if (!view || view.nodes.length === 0) return;
+    if (!window.confirm(t("map.clearMapConfirm"))) return;
+    api.mapClear().then(setView, (e) => onError(String(e)));
   };
 
   const applyTpl = () => {
@@ -631,6 +644,13 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                     {t("map.templateSaveAs")}
                   </button>
                 )}
+                <button
+                  className="btn sm"
+                  disabled={view.nodes.length === 0}
+                  onClick={clearMap}
+                >
+                  {t("map.clearMap")}
+                </button>
                 {nAssign === 0 && <span className="small dim">{t("map.startAllNone")}</span>}
                 <div className="grow" />
                 <span className="small dim">{t("map.hintKeys")}</span>
@@ -645,11 +665,28 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                 </header>
                 <div className="in col" style={{ gap: 6 }}>
                   <div className="small muted">{t("map.refreshHint")}</div>
-                  {refreshList.additions.map((p) => (
+                  {(refreshExpanded
+                    ? refreshList.additions
+                    : refreshList.additions.slice(0, REFRESH_PREVIEW_COLLAPSED)
+                  ).map((p) => (
                     <div key={p} className="path">
                       {p}
                     </div>
                   ))}
+                  {refreshList.additions.length > REFRESH_PREVIEW_COLLAPSED &&
+                    (refreshExpanded ? (
+                      <div>
+                        <button className="btn sm" onClick={() => setRefreshExpanded(false)}>
+                          {t("map.refreshCollapse")}
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <button className="btn sm" onClick={() => setRefreshExpanded(true)}>
+                          {t("map.refreshShowAll", { n: String(refreshList.additions.length) })}
+                        </button>
+                      </div>
+                    ))}
                   {refreshList.skipped.length > 0 && (
                     <>
                       <div className="small dim">{t("map.refreshSkipped")}</div>
@@ -666,7 +703,13 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                         {t("map.refreshApply")}
                       </button>
                     )}
-                    <button className="btn sm" onClick={() => setRefreshList(null)}>
+                    <button
+                      className="btn sm"
+                      onClick={() => {
+                        setRefreshList(null);
+                        setRefreshExpanded(false);
+                      }}
+                    >
                       {t("app.cancel")}
                     </button>
                   </div>

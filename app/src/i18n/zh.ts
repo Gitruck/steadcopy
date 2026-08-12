@@ -343,7 +343,7 @@ export const zh = {
   "update.willRestart": "装完会重启程序。装不装你说了算，不会自动装。",
 
   // 导图
-  "nav.map": "导图",
+  "nav.map": "导图 (Beta)",
   "map.needProject": "还没有项目——先去「设置 → 项目」建一个，导图长在项目上。",
   "map.emptyTitle": "把目录结构画出来",
   "map.emptyWhat":
@@ -374,12 +374,16 @@ export const zh = {
   "map.templateSaveAs": "存为模板…",
   "map.templateName": "模板名",
   "map.templateSave": "保存",
+  "map.clearMap": "新建导图",
+  "map.clearMapConfirm": "清空当前画布上的整棵树与全部连线？磁盘上的目录不受影响，已存的模板也还在。",
   "map.refresh": "刷新节点",
   "map.refreshTitle": "将并入导图的新目录",
   "map.refreshHint": "这些目录在磁盘上存在、导图里还没有。只增不删，绝不写磁盘。",
   "map.refreshNothing": "磁盘与导图一致，没有要并入的目录",
   "map.refreshSkipped": "以下目录无法并入（名字进不了导图），不影响其余目录：",
   "map.refreshSkippedLine": "{path}——{reason}",
+  "map.refreshShowAll": "显示全部 {n} 条",
+  "map.refreshCollapse": "收起",
   "map.refreshApply": "并入导图",
   "map.refreshApplied": "新目录已并入导图",
   "map.running": "拷贝中：{device}",

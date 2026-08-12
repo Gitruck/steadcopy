@@ -106,6 +106,7 @@ nothing                     不用做什么（已忽略 / 已有任务在跑）
 | `map_refresh_apply` | `confirmed` | `MapView` | 确认后并入。`confirmed` 就是预览返回、用户点头的那份 `additions` **原样传回**；落地只并「重算 diff ∩ 确认集」——预览之后磁盘新冒出的目录不会被顺手收编。只增不删；合并对确认集仍是原子的 |
 | `map_template_save` | `name` | `MapView` | 树存成模板。落位被剥掉——落位是工位现场的事，换个项目、换一天，卡都不是同一批 |
 | `map_template_apply` | `templateId` | `MapView` | 套用到当前项目 |
+| `map_clear` | — | `MapView` | 清空当前项目的整棵树与连线。磁盘与模板都不动——导图从不删用户文件 |
 | `map_template_delete` | `templateId` | `MapView` | |
 
 错误一律 `Result<_, String>`，串来自 core 的 `describe(lang)`（`lang` 取配置的语言设置）——门面不造句，界面与命令行不会漂出两套说法。

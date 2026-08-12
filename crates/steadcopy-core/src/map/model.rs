@@ -403,6 +403,15 @@ impl FolderMap {
     }
 
     /// 加一个节点，返回新节点 id。校验失败树保持原状。
+    /// 整棵清空——节点与落位一起走。
+    ///
+    /// 界面上的「新建导图」走这里。磁盘完全不动（导图从不删用户文件），
+    /// 这只是把画布归零；已存的模板不受影响，想找回结构可以套用模板。
+    pub fn clear(&mut self) {
+        self.nodes.clear();
+        self.assignments.clear();
+    }
+
     pub fn add_node(&mut self, parent: Option<&str>, name: &str) -> Result<String, MapError> {
         validate_node_name(name)?;
         if let Some(pid) = parent {
