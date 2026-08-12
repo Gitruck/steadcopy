@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   api,
   events,
@@ -452,11 +453,17 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
       setDevOver(null);
       if (target) api.mapAssign(id, target).then(setView, (x) => onError(String(x)));
     };
+    const cancel = () => {
+      setDevDrag(null);
+      setDevOver(null);
+    };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [devDrag !== null]);
@@ -811,11 +818,13 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                 ))}
               </div>
 
-              {devDrag && (
-                <div className="map-dragghost" style={{ left: devDrag.x + 10, top: devDrag.y + 8 }}>
-                  {devDrag.name}
-                </div>
-              )}
+              {devDrag &&
+                createPortal(
+                  <div className="map-dragghost" style={{ left: devDrag.x + 10, top: devDrag.y + 8 }}>
+                    {devDrag.name}
+                  </div>,
+                  document.body
+                )}
               <div className="map-canvas" ref={wrapRef}>
                 <svg
                   ref={svgRef}
