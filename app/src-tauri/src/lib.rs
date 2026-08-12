@@ -1064,15 +1064,17 @@ fn map_view_of(cfg: &Config) -> MapView {
     MapView {
         project_id: project.map(|p| p.id.clone()),
         project_name: project.map(|p| p.name.clone()),
-        destinations: project
-            .map(|p| {
-                p.destinations
-                    .iter()
-                    .filter(|d| d.enabled)
-                    .map(|d| d.root.display().to_string())
-                    .collect()
-            })
-            .unwrap_or_default(),
+        // 没有项目就没有落地位置——空列表是「无处可落」的如实呈现，
+        // 界面据此隐藏「落地位置」行，不是把错误吞成默认值
+        destinations: match project {
+            Some(p) => p
+                .destinations
+                .iter()
+                .filter(|d| d.enabled)
+                .map(|d| d.root.display().to_string())
+                .collect(),
+            None => Vec::new(),
+        },
         nodes: map
             .nodes
             .iter()
