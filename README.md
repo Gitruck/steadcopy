@@ -66,7 +66,7 @@
 核对方法（PowerShell）：
 
 ```powershell
-Get-FileHash .\steadcopy_0.1.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\steadcopy_0.1.1_x64-setup.exe -Algorithm SHA256
 ```
 
 把结果与 Releases 页面公示的值逐字比对，一致才安装。

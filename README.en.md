@@ -66,7 +66,7 @@ Where to get it:
 > Verify the checksum below to confirm where the file came from. **Never turn off your security software in order to run this program.**
 
 ```powershell
-Get-FileHash .\steadcopy_0.1.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\steadcopy_0.1.1_x64-setup.exe -Algorithm SHA256
 ```
 
 Compare against the value published on the Releases page. Install only if they match.

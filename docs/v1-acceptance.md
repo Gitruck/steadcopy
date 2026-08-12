@@ -6,16 +6,16 @@
 
 | 文件 | 大小 | 说明 |
 |---|---|---|
-| `steadcopy_0.1.0_x64-setup.exe` | 4.1 MB | 精简版安装包，per-user 安装，靠系统自带的 WebView2 |
-| `steadcopy_0.1.0_x64-setup-offline.exe` | 206.7 MB | 离线版安装包，WebView2 运行时随包，断网也能装 |
-| `steadcopy-0.1.0-portable.zip` | 7.1 MB | 便携版，解压即用，含命令行 |
+| `steadcopy_0.1.1_x64-setup.exe` | 4.14 MB | 精简版安装包，per-user 安装，靠系统自带的 WebView2 |
+| `steadcopy_0.1.1_x64-setup-offline.exe` | 206.67 MB | 离线版安装包，WebView2 运行时随包，断网也能装 |
+| `steadcopy-0.1.1-portable.zip` | 7.11 MB | 便携版，解压即用，含命令行 |
 | `SHA256SUMS.txt` | — | 校验码，与 `docs/verify-download.md` 同源 |
 | `THIRD-PARTY-LICENSES.md` | — | 345 个 Rust 依赖 + 76 个前端依赖，无 GPL 系 |
 
 两个安装包**是同一个产品的两种装法**，productName 相同，差别只有 WebView2 装法一处。
 名字不同会被 Windows 当成两个程序——离线版用户收到更新（更新指向精简版）就会装出第二份。
 
-自动化现状：**安全轨测试全绿**（根 workspace 321 条 + app 壳 8 条），`clippy -D warnings` 干净（含自定义的静默降级禁令），
+自动化现状：**安全轨测试全绿**（根 workspace 321 条 + app 壳 8 条 + 发布脚本 10 条，另有 11 道闸门自证能响），`clippy -D warnings` 干净（含自定义的静默降级禁令），
 `tsc --noEmit` 干净，场景覆盖自检通过。危险轨 3 条 `#[ignore]`，**从未在本机执行过**。
 
 `app/src-tauri` 是独立 workspace，根目录的 `cargo test --workspace` 扫不到它（更新端点白名单那几条测试住在那儿），
@@ -31,7 +31,7 @@
 ### 1. 核对来源再装
 
 ```powershell
-Get-FileHash .\steadcopy_0.1.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\steadcopy_0.1.1_x64-setup.exe -Algorithm SHA256
 ```
 
 与 `release/SHA256SUMS.txt` 逐字比对。会提示未知发布者，这是预期的（没买签名证书）。

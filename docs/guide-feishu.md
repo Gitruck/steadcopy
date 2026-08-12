@@ -36,7 +36,7 @@
 想更稳妥的话，下载页有一串 SHA-256 校验码。在下载目录开 PowerShell：
 
 ```powershell
-Get-FileHash .\steadcopy_0.1.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\steadcopy_0.1.1_x64-setup.exe -Algorithm SHA256
 ```
 
 跟页面上那串逐字对一下，一样就是官方的。

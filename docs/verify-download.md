@@ -8,7 +8,7 @@
 在下载目录打开 PowerShell，执行：
 
 ```powershell
-Get-FileHash .\steadcopy_0.1.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\steadcopy_0.1.1_x64-setup.exe -Algorithm SHA256
 ```
 
 把输出的 `Hash` 与下面三处**任一**公示的值逐字比对（三处内容一致）：
@@ -23,8 +23,8 @@ Get-FileHash .\steadcopy_0.1.0_x64-setup.exe -Algorithm SHA256
 
 | | 大小 | 什么时候用 |
 |---|---|---|
-| `steadcopy_0.1.0_x64-setup.exe` | 4.1 MB | **默认选它。** 本机已有 WebView2 就直接装完；没有的话装的时候会去拉一下运行时 |
-| `steadcopy_0.1.0_x64-setup-offline.exe` | 206.7 MB | **片场没网、机器全新时选它。** WebView2 运行时整个打在包里，断网也能装 |
+| `steadcopy_0.1.1_x64-setup.exe` | 4.14 MB | **默认选它。** 本机已有 WebView2 就直接装完；没有的话装的时候会去拉一下运行时 |
+| `steadcopy_0.1.1_x64-setup-offline.exe` | 206.67 MB | **片场没网、机器全新时选它。** WebView2 运行时整个打在包里，断网也能装 |
 
 Windows 11 与 Windows 10 22H2 自带 WebView2，绝大多数机器用精简版就够。
 
@@ -39,15 +39,14 @@ Windows 11 与 Windows 10 22H2 自带 WebView2，绝大多数机器用精简版�
 
 ## 本次发布的校验码
 
-> **发版时必须整段替换成正式构建的值。** 下面这三行是本机试打时留下的，
-> 而每次编译产出的字节都不同（Rust 编译不是逐字节可复现的）——照抄旧值会让
-> 所有认真核对的人都对不上，然后他们只能猜是自己下坏了还是包被人动过。
-> 正式值从发布那次流水线产物里的 `SHA256SUMS.txt` 原样复制（门控 R12）。
+> 这三行来自 **v0.1.1 发布流水线**（run 31572298341）产出的 `SHA256SUMS.txt`，原样复制。
+> 每次发版都要整段换新：每次编译产出的字节都不同（Rust 编译不是逐字节可复现的），
+> 照抄旧值会让所有认真核对的人都对不上，然后他们只能猜是自己下坏了还是包被人动过。
 
 ```
-339de6ad35248477bbc7fc3078896a20e499ea1a6a2d9ab8af6346c239986986  steadcopy_0.1.0_x64-setup.exe
-d70c67cddf4ebea895e5f8b6e8119db44610a81cdf04dbdde376fe09edc0647f  steadcopy_0.1.0_x64-setup-offline.exe
-4ec46ccadf737089db5e400290f460ea08d71fac21e87ba83a46b231fa2f033c  steadcopy-0.1.0-portable.zip
+36982bc52d8f7d77c0d47dd9a3a9ebd6796c7727956af1b45ae75ef68f1a97ca  steadcopy_0.1.1_x64-setup.exe
+ffee4280e0ad9cc362467b07e8bee0f5c9cb922dcbdcf9d5a4bda69aeb5b1f07  steadcopy_0.1.1_x64-setup-offline.exe
+52bf5ac86f6007730e14adaae70dea4dc93e7177c1833770f5b8e13e9c463183  steadcopy-0.1.1-portable.zip
 ```
 
 以 `SHA256SUMS.txt` 为准，它由打包流水线在出包的同一次运行里生成，不是事后手抄的。
@@ -76,7 +75,7 @@ d70c67cddf4ebea895e5f8b6e8119db44610a81cdf04dbdde376fe09edc0647f  steadcopy_0.1.
 
 ## 便携版
 
-`steadcopy-0.1.0-portable.zip`（约 7 MB）解压即用：数据全部落在同目录的 `data\` 里，
+`steadcopy-0.1.1-portable.zip`（7.1 MB）解压即用：数据全部落在同目录的 `data\` 里，
 不写注册表，整个文件夹拷到别的机器上照样能用，卸载就是删文件夹。便携版与安装版的数据
 是分开的，同一台机器上并存也互不影响。
 
