@@ -1047,6 +1047,12 @@ struct MapView {
     /// 导图长在哪个项目上。没有项目时为 null，界面据此显示「先建项目」的空态
     project_id: Option<String>,
     project_name: Option<String>,
+    /// 项目启用中的目的地根目录（显示用）。
+    ///
+    /// 「节点 = 目的地根目录下的真实文件夹」这层对应关系必须钉在界面上——
+    /// 主理人真机走查时是拷完才反推出来的：不亮出根目录，画布就是一棵
+    /// 悬在半空的抽象树，刷新清单看起来像「莫名列了一堆盘上的文件夹」。
+    destinations: Vec<String>,
     nodes: Vec<MapNodeView>,
     templates: Vec<MapTemplateView>,
 }
@@ -1058,6 +1064,15 @@ fn map_view_of(cfg: &Config) -> MapView {
     MapView {
         project_id: project.map(|p| p.id.clone()),
         project_name: project.map(|p| p.name.clone()),
+        destinations: project
+            .map(|p| {
+                p.destinations
+                    .iter()
+                    .filter(|d| d.enabled)
+                    .map(|d| d.root.display().to_string())
+                    .collect()
+            })
+            .unwrap_or_default(),
         nodes: map
             .nodes
             .iter()

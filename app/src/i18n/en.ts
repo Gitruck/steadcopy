@@ -354,7 +354,7 @@ export const en: Record<Key, string> = {
     "No project yet — create one under Settings → Projects first; the map lives on a project.",
   "map.emptyTitle": "Draw your folder structure",
   "map.emptyWhat":
-    "The map draws your target folders as a tree: every node is a folder that will be created. Drag a device from the left onto a node to make a connection, then \"Start all\" copies and verifies along each line — same queue, receipts and ledger as every other entry point.",
+    "The map draws your target folders as a tree: every node is a real folder under each destination root of the project (node \"Footage\" = <destination>\\Footage; the landing location is shown below the toolbar). Drag a device from the left onto a node to connect it; \"Start all\" copies and verifies along each line — same queue, receipts and ledger as every other entry point.",
   "map.emptyHow":
     "Node names accept the same {项目}{日期}{设备} placeholders as path templates; they render into real folder names at dispatch time.",
   "map.addFirst": "Add the first node",
@@ -391,9 +391,12 @@ export const en: Record<Key, string> = {
   "map.clearMap": "New map",
   "map.clearMapConfirm": "Clear the whole tree and every connection on this canvas? Folders on disk are untouched, and saved templates stay.",
   "map.refresh": "Refresh nodes",
+  "map.landing": "Lands in: {root}",
+  "map.landingMore": "(plus {n} more destination(s), one copy each)",
+  "map.selPath": "Selected node = {path}",
   "map.refreshTitle": "New folders about to join the map",
   "map.refreshHint":
-    "These folders exist on disk but not on the map yet. Add-only, never deletes, never writes to disk.",
+    "Compared against: {root} — these folders exist on disk but not in the map yet. Merging only draws them into the map; nothing is ever written to disk",
   "map.refreshNothing": "Disk and map already agree — nothing to merge",
   "map.refreshSkipped":
     "These folders cannot join the map (their names are not valid node names); the rest are unaffected:",

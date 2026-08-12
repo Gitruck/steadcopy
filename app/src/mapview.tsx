@@ -737,6 +737,24 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                 <div className="grow" />
                 <span className="small dim">{t("map.hintKeys")}</span>
               </div>
+              {/* 「节点 = 目的地根目录下的真实文件夹」必须常驻可见：
+                  不亮出根目录，这棵树就悬在半空，刷新清单也像无源之水 */}
+              <div className="in row map-landing" style={{ gap: 8, flexWrap: "wrap" }}>
+                {view.destinations.length > 0 && (
+                  <span className="small muted mono">
+                    {t("map.landing", { root: view.destinations[0] })}
+                    {view.destinations.length > 1 &&
+                      " " + t("map.landingMore", { n: String(view.destinations.length - 1) })}
+                  </span>
+                )}
+                {selNode && view.destinations.length > 0 && (
+                  <span className="small mono" style={{ color: "var(--running)" }}>
+                    {t("map.selPath", {
+                      path: view.destinations[0].replace(/[\\/]+$/, "") + "\\" + selNode.path.replace(/\//g, "\\"),
+                    })}
+                  </span>
+                )}
+              </div>
             </div>
 
             {refreshList && (
@@ -746,7 +764,9 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                   <span className="n">{refreshList.additions.length}</span>
                 </header>
                 <div className="in col" style={{ gap: 6 }}>
-                  <div className="small muted">{t("map.refreshHint")}</div>
+                  <div className="small muted">
+                    {t("map.refreshHint", { root: view.destinations[0] ?? "—" })}
+                  </div>
                   {(refreshExpanded
                     ? refreshList.additions
                     : refreshList.additions.slice(0, REFRESH_PREVIEW_COLLAPSED)

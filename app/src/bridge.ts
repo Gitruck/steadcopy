@@ -316,6 +316,8 @@ export type MapView = {
   /** 导图长在哪个项目上。null = 还没有项目，界面显示空态引导 */
   project_id: string | null;
   project_name: string | null;
+  /** 项目启用中的目的地根目录。节点 = 这些根目录下的同名真实文件夹 */
+  destinations: string[];
   nodes: MapNode[];
   templates: { id: string; name: string }[];
 };
