@@ -146,11 +146,13 @@ impl ArrivalOutcome {
             ArrivalOutcome::AlreadyRunning { .. } => lang
                 .pick("该设备上已有任务在进行", "A task is already running on this device")
                 .into(),
+            // 措辞刻意不提「预设」：对一无所知的新用户，这是**完全正常的起点**，
+            // 不是缺了什么。以警告口吻要求先去配置高级功能，等于把锦上添花做成
+            // 拦路虎——预设概念由拷贝过程中的「记住这个做法」提示自然引入
+            // （2026-08-12 主理人拍板：哪怕只是心理压力也会造成流失）。
             ArrivalOutcome::NoPreset { device_name, .. } => match lang {
-                Locale::Zh => format!("「{device_name}」没有匹配的预设任务，去配一条或手动选参数"),
-                Locale::En => {
-                    format!("No preset matches \"{device_name}\" — set one up, or copy just once")
-                }
+                Locale::Zh => format!("「{device_name}」已就绪，可以开始拷贝"),
+                Locale::En => format!("\"{device_name}\" is ready to copy"),
             },
             ArrivalOutcome::NoProject { preset_name } => match lang {
                 Locale::Zh => format!("预设「{preset_name}」还没有可用的项目，请先建一个项目"),

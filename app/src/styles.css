@@ -182,6 +182,9 @@ td.num { text-align: right; font-family: var(--mono); font-size: 11.5px; white-s
 .banner.ok { color: var(--ok); background: #0d2a28; border-color: #1a4a46; }
 .banner.warn { color: var(--warn); background: #2c2313; border-color: #4a3c19; }
 .banner.bad { color: var(--danger); background: #2e1618; border-color: #4d2427; }
+/* 中性横幅：正常状态的正常语气。「没配预设」对新用户是常态不是告警——
+   黄牌会把高级功能变成新手的拦路虎（2026-08-12 主理人拍板） */
+.banner.plain { color: var(--fg); background: var(--panel-2); border-color: var(--line); }
 
 /* 对话框：确认框比报告窄，且高度随内容 */
 .viewer .sheet.narrow {

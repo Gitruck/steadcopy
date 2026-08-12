@@ -312,8 +312,10 @@ function Workbench({
             {t("workbench.needProject")}
           </div>
         )}
+        {/* 没配预设对新用户是常态：普通语气，不做黄牌（同 arrival 卡口径，
+            2026-08-12 主理人拍板——高级功能不出现在新手路径上当拦路虎） */}
         {cfg.projects.length > 0 && cfg.presets.filter((p) => p.enabled).length === 0 && (
-          <div className="banner warn">
+          <div className="banner plain">
             {t("workbench.needPreset")}
           </div>
         )}
@@ -576,7 +578,11 @@ function ArrivalCard({
       case "choose_another_destination":
         return (
           <button className="btn primary" onClick={onCopyOnce}>
-            {a.next_step === "choose_another_destination" ? t("arrival.copyElsewhere") : t("arrival.copyOnceExit")}
+            {a.next_step === "choose_another_destination"
+              ? t("arrival.copyElsewhere")
+              : a.outcome === "no_preset"
+                ? t("arrival.startCopy")
+                : t("arrival.copyOnceExit")}
           </button>
         );
       case "view_last_report":
@@ -618,9 +624,20 @@ function ArrivalCard({
       <div className="panel arrival">
         <header>{t("settings.onInsert")}</header>
         <div className="in col">
-          <div className={a.outcome === "insufficient_space" ? "banner bad" : "banner warn"}>
+          <div
+            className={
+              a.outcome === "insufficient_space"
+                ? "banner bad"
+                : a.outcome === "no_preset"
+                  ? "banner plain"
+                  : "banner warn"
+            }
+          >
             {a.summary}
           </div>
+          {a.outcome === "no_preset" && (
+            <div className="small muted">{t("arrival.noPresetHint")}</div>
+          )}
           {a.destinations.length > 0 && <DestinationList dests={a.destinations} />}
           <div className="row" style={{ gap: 8 }}>
             {exit()}

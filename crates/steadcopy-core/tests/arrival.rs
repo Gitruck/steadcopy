@@ -12,7 +12,7 @@ use steadcopy_core::i18n::Locale;
 use steadcopy_core::config::model::{Config, DestinationConfig, Project};
 use steadcopy_core::device::{BusType, DeviceKind, Volume, VolumeState};
 use steadcopy_core::platform::{volume_io, VolumeIo};
-use steadcopy_core::preset::{on_arrival, ArrivalOutcome, Preset, PresetMatch};
+use steadcopy_core::preset::{on_arrival, ArrivalOutcome, NextStep, Preset, PresetMatch};
 use time::macros::datetime;
 use time::OffsetDateTime;
 
@@ -234,7 +234,18 @@ fn scenario_preset_autorun_no_preset_is_reported_not_defaulted() {
         other => panic!("无匹配应如实报告，实际 {other:?}"),
     }
     assert!(!f.dest.exists(), "无预设 MUST NOT 用默认项目静默开跑");
-    assert!(out.summary(Locale::Zh).contains("预设"), "结论要能告诉用户怎么办");
+    // 2026-08-12 主理人拍板反转旧口径：结论**不许**提「预设」。
+    // 对一无所知的新用户，没配预设是完全正常的起点，不是缺了什么——
+    // 以警告口吻要求先配高级功能，等于把锦上添花做成拦路虎。
+    // 「怎么办」由出口承载（next_step = CopyOnce → 界面上是「开始拷贝」主按钮），
+    // 预设概念由拷贝过程中的「记住这个做法」提示自然引入。
+    let zh = out.summary(Locale::Zh);
+    assert!(!zh.contains("预设"), "无预设的结论不该向新用户抛高级概念：{zh}");
+    assert!(zh.contains("可以开始拷贝"), "结论应当是平静的「已就绪」而不是告警：{zh}");
+    assert!(
+        matches!(out.next_step(), NextStep::CopyOnce),
+        "出口必须是「就拷这一次/开始拷贝」"
+    );
 }
 
 #[test]

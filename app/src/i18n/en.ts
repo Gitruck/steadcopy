@@ -43,7 +43,7 @@ export const en: Record<Key, string> = {
   "workbench.needProject":
     "No project yet. Create one under Settings → Projects so a card knows where to land.",
   "workbench.needPreset":
-    "No preset enabled yet. Set one up under Presets, or just use \"Copy just once\".",
+    "Insert a card to start copying. While it runs, click “remember this” and the next insert of the same card is fully automatic.",
   "workbench.devices": "Devices",
   "workbench.devicesUsable": "{n} usable",
   "workbench.reading": "Reading local volumes…",
@@ -287,6 +287,8 @@ export const en: Record<Key, string> = {
   "confirm.notMatching": "Still does not match",
   "arrival.copyElsewhere": "Copy somewhere else",
   "arrival.copyOnceExit": "Copy just once",
+  "arrival.startCopy": "Start copying",
+  "arrival.noPresetHint": "While it runs you can “remember this” — next time this card is inserted it copies automatically. Nothing to set up now.",
   "arrival.viewLastReport": "View the last report",
   "arrival.deviceOffline": "That device is not connected right now — plug it in and try again",
   "arrival.toCopyPrefix": "To copy",
