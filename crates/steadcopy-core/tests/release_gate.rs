@@ -371,3 +371,112 @@ fn scenario_i18n_ui_has_no_hardcoded_chinese() {
         "界面里出现了硬编码中文，英文用户会直接看到它们——请收进 app/src/i18n/zh.ts：\n{hits:#?}"
     );
 }
+
+/// 界面与报告里不许出现绿色。
+///
+/// 规范：门控 R6（clean-room 自检 · 界面形态不与前身构成近似）
+///
+/// # 为什么这条是硬约束
+///
+/// 前身项目的主色是绿的。本项目原作者把「换掉绿色」作为**同意开源的条件**——
+/// 也就是说这不是审美偏好，是一条许可条款性质的约束，改回去要付的不是返工成本。
+///
+/// # 为什么按色相判，不按具体色值判
+///
+/// 列举「不许用 #3ddc84」只能挡住这一个值，换个近似的绿照样溜进去。
+/// 按 HSL 色相拦 80°–160°（黄绿到春绿的整段）才拦得住一类而不是一个。
+///
+/// 青绿（teal）在 165°–185°，落在闸门外，是刻意的：成功态用青绿——
+/// 主色是蓝，纯绿在蓝调界面里像另一个产品的零件；但也不能跟着变蓝，
+/// 因为 `--running` 就是蓝的，两者一样的话「还在跑」和「跑完了」一眼分不出。
+///
+/// 低饱和的颜色不参与判定：接近灰的颜色算出来的色相没有意义
+/// （`#262c37` 这种面板线条色的色相会落在任意区间）。
+#[test]
+fn scenario_app_shell_palette_has_no_green() {
+    /// 返回 (色相 0–360, 饱和度 0–1)
+    fn hue_sat(hex: &str) -> (f64, f64) {
+        let v = |i: usize| i64::from_str_radix(&hex[i..i + 2], 16).unwrap_or(0) as f64 / 255.0;
+        let (r, g, b) = (v(0), v(2), v(4));
+        let max = r.max(g).max(b);
+        let min = r.min(g).min(b);
+        let d = max - min;
+        if d == 0.0 {
+            return (0.0, 0.0);
+        }
+        let h = if max == r {
+            60.0 * (((g - b) / d) % 6.0)
+        } else if max == g {
+            60.0 * ((b - r) / d + 2.0)
+        } else {
+            60.0 * ((r - g) / d + 4.0)
+        };
+        let l = (max + min) / 2.0;
+        let s = d / (1.0 - (2.0 * l - 1.0).abs()).max(1e-9);
+        ((h + 360.0) % 360.0, s.min(1.0))
+    }
+
+    // 饱和度低于这个的当灰色处理，不判色相
+    const GRAY: f64 = 0.15;
+    // 拦下的色相区间：黄绿 → 春绿。青绿（>160）与黄（<80）都在外面
+    const GREEN: std::ops::Range<f64> = 80.0..160.0;
+
+    let mut hits = Vec::new();
+    for rel in ["app/src/styles.css", "crates/steadcopy-core/src/ledger/report.rs"] {
+        let text = read(rel);
+        for (n, line) in text.lines().enumerate() {
+            let bytes = line.as_bytes();
+            for (i, _) in line.match_indices('#') {
+                // 只认 #rrggbb；#rgb 与 CSS id 选择器不在此列
+                if i + 7 > line.len() {
+                    continue;
+                }
+                let hex = &line[i + 1..i + 7];
+                if !hex.bytes().all(|c| c.is_ascii_hexdigit()) {
+                    continue;
+                }
+                // 后面还跟着十六进制位说明这不是六位色（比如八位带 alpha）
+                if bytes.get(i + 7).is_some_and(|c| c.is_ascii_hexdigit()) {
+                    continue;
+                }
+                let (h, s) = hue_sat(hex);
+                if s >= GRAY && GREEN.contains(&h) {
+                    hits.push(format!("{rel}:{}: #{hex}（色相 {h:.0}°）  {}", n + 1, line.trim()));
+                }
+            }
+        }
+    }
+
+    assert!(
+        hits.is_empty(),
+        "调色板里出现了绿色。主色为蓝是原作者同意开源的条件之一，不是审美偏好。\n\
+         成功态请用青绿（色相 165°–185°，如 #2dd4bf / #0f766e），\
+         它在闸门外且与「正在跑」的蓝区分得开：\n{hits:#?}"
+    );
+
+    // 「成功」与「正在跑」必须一眼分得开。
+    //
+    // 这条与上面那条是一体的：把成功态从纯绿挪走时，最省事的做法是挪成蓝，
+    // 而那恰好会撞上 `--running`。所以判据要钉在这儿，不能只钉「别用绿」——
+    // 只钉后者的话，一次「顺手都改蓝」就能悄悄毁掉这个工具最高频的一次判断：
+    // 拷卡时瞥一眼「还在跑还是跑完了」。
+    //
+    // 铁律只说了颜色不能是**唯一**信息载体，没说可以让它变成误导。
+    let css = read("app/src/styles.css");
+    let hue_of = |name: &str| -> f64 {
+        let line = css
+            .lines()
+            .find(|l| l.trim_start().starts_with(&format!("{name}:")))
+            .unwrap_or_else(|| panic!("styles.css 里找不到 {name}"));
+        let hex = line.split('#').nth(1).expect("值不是十六进制色");
+        hue_sat(&hex[..6]).0
+    };
+    let (ok, running) = (hue_of("--ok"), hue_of("--running"));
+    let raw = (ok - running).abs();
+    let gap = raw.min(360.0 - raw);
+    assert!(
+        gap >= 30.0,
+        "「校验通过」({ok:.0}°) 与「正在跑」({running:.0}°) 的色相只差 {gap:.0}°，\
+         在屏幕上会糊成一片。拷卡时最常瞥的一眼就是这两个状态的区别。"
+    );
+}

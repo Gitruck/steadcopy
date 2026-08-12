@@ -74,8 +74,8 @@ fn human_duration(secs: u64, lang: Locale) -> String {
 
 /// 样式内联，**无任何外部资源**——报告拷到别的机器、断网也能原样打开。
 const STYLE: &str = r#"
-:root{--fg:#1a1d21;--muted:#6b7280;--line:#e5e7eb;--ok:#15803d;--okbg:#f0fdf4;
---warn:#b45309;--warnbg:#fffbeb;--bad:#b91c1c;--badbg:#fef2f2;--accent:#1f2937}
+:root{--fg:#1a1d21;--muted:#6b7280;--line:#e5e7eb;--ok:#0f766e;--okbg:#f0fdfa;
+--warn:#b45309;--warnbg:#fffbeb;--bad:#b91c1c;--badbg:#fef2f2}
 *{box-sizing:border-box}
 body{margin:0;padding:32px;font:14px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
 color:var(--fg);background:#fff;max-width:1000px;margin-inline:auto}
@@ -83,7 +83,7 @@ h1{font-size:22px;margin:0 0 4px}
 h2{font-size:15px;margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
 .sub{color:var(--muted);font-size:12px;margin-bottom:20px}
 .verdict{padding:14px 16px;border-radius:8px;border:1px solid;font-size:15px;font-weight:600;margin:16px 0}
-.v-ok{color:var(--ok);background:var(--okbg);border-color:#bbf7d0}
+.v-ok{color:var(--ok);background:var(--okbg);border-color:#99f6e4}
 .v-warn{color:var(--warn);background:var(--warnbg);border-color:#fde68a}
 .v-bad{color:var(--bad);background:var(--badbg);border-color:#fecaca}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:14px 0}

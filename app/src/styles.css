@@ -1,6 +1,10 @@
 /* 视觉定调：工位仪表感——信息密度高、状态语义严格、克制不营销。
    clean-room 红线：不复刻前身的小窗形态、不做 Gate 的脑图画布、
-   不做 Kocard 的三色流水线并列大卡。 */
+   不做 Kocard 的三色流水线并列大卡。
+
+   主色为蓝（2026-08-12 定）。原先没有独立的品牌色变量，导航选中条直接借用
+   `--ok`——于是「品牌」与「校验通过」是同一个绿，改主题色就得散着改七处。
+   现在拆开：`--accent` 管身份（导航选中、主按钮、可用设备），`--ok` 管语义。 */
 
 :root {
   --bg: #101318;
@@ -11,10 +15,17 @@
   --muted: #8b95a5;
   --dim: #5d6675;
 
+  /* 品牌色。只用在「这是本产品」和「这是主操作」上，不承载任何状态含义——
+     一旦拿它表示状态，下次换主题色又会散落各处。 */
+  --accent: #2f6feb;
+
   /* 状态语义色。铁律：颜色 MUST NOT 是唯一信息载体，每处都配文字或图标 */
   --neutral: #6b7686;
   --running: #4a9eff;
-  --ok: #3ddc84;
+  /* 成功用青绿而不是纯绿：主色是蓝，纯绿在蓝调界面里显得像另一个产品的零件。
+     但也不能跟着变蓝——`--running` 就是蓝的，两者一样的话
+     「还在跑」和「跑完了」一眼分不出，而那是拷卡时最常瞥的一眼。 */
+  --ok: #2dd4bf;
   --warn: #f0b232;
   --danger: #f2555a;
 
@@ -53,7 +64,7 @@ input, select { font: inherit; }
   padding: 8px 16px; border-left: 2px solid transparent;
 }
 .nav button:hover { color: var(--fg); }
-.nav button.on { color: var(--fg); border-left-color: var(--ok); background: var(--panel-2); }
+.nav button.on { color: var(--fg); border-left-color: var(--accent); background: var(--panel-2); }
 .nav .spacer { flex: 1; }
 .nav .ver { padding: 0 16px; color: var(--dim); font-size: 10px; }
 
@@ -91,8 +102,8 @@ input, select { font: inherit; }
 }
 .btn:hover:not(:disabled) { border-color: #3a4353; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
-.btn.primary { background: #1d6b45; border-color: #24875a; color: #eafff3; }
-.btn.primary:hover:not(:disabled) { background: #237a4f; }
+.btn.primary { background: #2352c9; border-color: var(--accent); color: #eaf1ff; }
+.btn.primary:hover:not(:disabled) { background: #2a5fe0; }
 .btn.danger { border-color: #5a2b2d; color: #ffb9bb; }
 .btn.sm { padding: 3px 8px; font-size: 12px; }
 
@@ -111,7 +122,7 @@ input, select { font: inherit; }
 }
 .t-neutral { color: var(--muted); background: #1e232c; }
 .t-run { color: var(--running); background: #12243a; }
-.t-ok { color: var(--ok); background: #0f2a1c; }
+.t-ok { color: var(--ok); background: #0d2a28; }
 .t-warn { color: var(--warn); background: #2c2313; }
 .t-bad { color: var(--danger); background: #2e1618; }
 
@@ -126,7 +137,7 @@ input, select { font: inherit; }
 /* ---- 设备卡 ---- */
 .dev { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel-2); }
 .dev + .dev { margin-top: 8px; }
-.dev.usable { border-color: #2c4a3a; }
+.dev.usable { border-color: #27406b; }
 .dev .hd { display: flex; align-items: center; gap: 8px; }
 .dev .nm { font-weight: 600; }
 .dev .meta { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
@@ -167,7 +178,7 @@ td.num { text-align: right; font-family: var(--mono); font-size: 11.5px; white-s
   padding: 8px 12px; border-radius: 6px; font-size: 12.5px;
   border: 1px solid;
 }
-.banner.ok { color: var(--ok); background: #0f2a1c; border-color: #1e4a33; }
+.banner.ok { color: var(--ok); background: #0d2a28; border-color: #1a4a46; }
 .banner.warn { color: var(--warn); background: #2c2313; border-color: #4a3c19; }
 .banner.bad { color: var(--danger); background: #2e1618; border-color: #4d2427; }
 
