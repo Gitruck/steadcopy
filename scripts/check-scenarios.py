@@ -96,7 +96,13 @@ EXEMPT = {
 
 def scenarios_by_capability():
     caps = {}
-    for dirpath, _dirs, files in os.walk(os.path.join(ROOT, "openspec")):
+    for dirpath, dirs, files in os.walk(os.path.join(ROOT, "openspec")):
+        # archive/ 不进统计：归档时 delta 已合进主 spec（openspec archive 干的），
+        # 归档件里那份旧 delta 只是历史留痕。两边都数，每条场景就是两票——
+        # 第一次归档当天这个闸门就因此虚报了 180 条缺口。
+        if os.path.basename(dirpath) == "archive" and "changes" in dirpath:
+            dirs[:] = []
+            continue
         if "spec.md" not in files:
             continue
         cap = os.path.basename(dirpath)

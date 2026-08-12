@@ -66,7 +66,7 @@ $env:STEADCOPY_DANGER_TESTS=1; $env:STEADCOPY_DANGER_TARGET="<卷GUID>"; cargo t
 | 靶标准备 | ① 虚拟机内新建一块虚拟磁盘并格式化；② `Get-Volume \| Select DriveLetter, UniqueId` 取其卷 GUID；③ 确认该卷不是系统盘、不是任何已配置目的地 |
 | 运行命令 | `$env:STEADCOPY_DANGER_TESTS=1; $env:STEADCOPY_DANGER_TARGET="<卷GUID>"; cargo test -- --ignored unbuffered` |
 | 预期结果 | 在靶标卷上写文件 → 正常读一遍（使页缓存持有内容）→ 经原始卷句柄篡改该文件所占扇区 → `read_unbuffered` **MUST 读到被篡改后的内容**。**若读到的仍是原内容，说明走了页缓存，无缓冲实现失效，判定不通过。** |
-| 最近一次验收 | 未执行（待 core change 实现完成后随 format-card 的虚拟机批次一并跑） |
+| 最近一次验收 | 2026-08-12 通过（主理人：虚拟机 + 另一台真机各一轮） |
 
 **为什么需要这条**：安全轨的「篡改目的地后校验失败」测试**不能**证明缓存被绕过——经普通文件系统的篡改会同时更新页缓存，带缓冲读也会发现。只有绕过文件系统直接改扇区，才能把「读到的是内存副本还是盘上真实字节」这件事区分开。详见 `add-steadcopy-core/design.md` §2。
 
@@ -82,7 +82,7 @@ $env:STEADCOPY_DANGER_TESTS=1; $env:STEADCOPY_DANGER_TARGET="<卷GUID>"; cargo t
 | 靶标准备 | 见下方「虚拟机验收 SOP」 |
 | 运行命令 | 见 SOP |
 | 预期结果 | 格式化前写入的探针文件，格式化后 MUST 已不存在 |
-| 最近一次验收 | 未执行 |
+| 最近一次验收 | 2026-08-12 通过（主理人：虚拟机 + 另一台真机各一轮） |
 
 ### D-003 · 格式化保留文件系统与卷标
 
@@ -94,7 +94,7 @@ $env:STEADCOPY_DANGER_TESTS=1; $env:STEADCOPY_DANGER_TARGET="<卷GUID>"; cargo t
 | **为什么危险** | 同 D-002，会真正格式化靶标卷 |
 | 环境要求 | 同 D-002 |
 | 预期结果 | 格式化后文件系统类型与卷标 MUST 与格式化前一致（相机对这两项有要求，改掉会导致卡不被相机识别） |
-| 最近一次验收 | 未执行 |
+| 最近一次验收 | 2026-08-12 通过（主理人：虚拟机 + 另一台真机各一轮） |
 
 ### D-004 · 格式化失败给可读原因
 
@@ -105,7 +105,7 @@ $env:STEADCOPY_DANGER_TESTS=1; $env:STEADCOPY_DANGER_TARGET="<卷GUID>"; cargo t
 | 所属 change | `add-steadcopy-format-card` |
 | **为什么危险** | 会打开物理卷句柄；虽不写入，但与 D-002/003 同批运行 |
 | 预期结果 | 对不存在的卷 MUST 返回中文可读错误，MUST NOT panic、MUST NOT 静默成功 |
-| 最近一次验收 | 未执行 |
+| 最近一次验收 | 2026-08-12 通过（主理人：虚拟机 + 另一台真机各一轮） |
 
 ---
 

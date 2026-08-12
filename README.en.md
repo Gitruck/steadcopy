@@ -94,7 +94,9 @@ Every command supports `--json` (pure JSON on stdout, logs on stderr) and `--lan
 
 Chinese and English. Follows the system language by default; switchable under Settings → Language, effective immediately.
 
-> **Honest note about the current state:** the interface, the insert-and-run flow, the orchestration conclusions and **the copy report** are fully bilingual. A long tail is still Chinese-only — most CLI output, the safety-check details, and some error descriptions. Those fall back to **Chinese, never to blank**: the translation tables are exhaustive `match` arms, so what's missing is wording, not branches.
+> **Honest note about the current state:** the interface, the insert-and-run flow, the orchestration conclusions, the copy report, the CLI output, the safety-check details and all nine error families are **fully bilingual**.
+> The one thing that stays Chinese is the CLI's `--help`: clap fixes it at compile time and it cannot switch at runtime. `--lang en` governs runtime output, and `--help` says so itself.
+> A missing translation falls back to **Chinese, never to blank**: exhaustive `match` on the Rust side, `Record<Key, string>` on the TS side — miss one and it fails to compile.
 
 ## Build from source
 
