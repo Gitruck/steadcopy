@@ -422,68 +422,46 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
     api.mapUnassign(l.id).then(setView, (e) => onError(String(e)));
   };
 
-  // 【临时探针 · 只进 dev 构建】拖拽链路在真机上连续三版修不中，而浏览器复现
-  // 全绿——说明差异藏在真机的某个具体数值里。把每步的实数打在屏幕上，
-  // 一张照片定位。查明后整段删除。
-  const [diag, setDiag] = useState("");
-
   /** 光标下是哪个节点。**纯几何判断**，不碰 DOM 命中测试：
    *  第一版用 elementFromPoint，同一段代码在浏览器里全链路通过、
    *  真机 WebView2 上却打不中——不跟环境差异耗，布局坐标本来就在手里
    *  （laid.pos），getScreenCTM 把光标从视口坐标逆变换进 SVG 用户空间，
    *  跟节点矩形做包含判断即可。缩放平移都在矩阵里，preserveAspectRatio 也是。 */
-  const hitInfo = (cx: number, cy: number): { id: string | null; note: string } => {
+  const nodeUnderPoint = (cx: number, cy: number): string | null => {
     const svg = svgRef.current;
     const m = svg?.getScreenCTM();
-    if (!svg || !m) return { id: null, note: svg ? "无CTM" : "无svg" };
+    if (!svg || !m) return null;
     const pt = new DOMPoint(cx, cy).matrixTransform(m.inverse());
+    // 命中矩形向外扩一圈：拖拽落点不是外科手术，差几个像素不该白拖一趟。
+    // 扩量小于行距/列距的一半，不会把相邻节点纳进来
+    const PAD = 10;
     for (const [id, q] of laid.pos) {
-      if (pt.x >= q.x && pt.x <= q.x + NODE_W && pt.y >= q.y && pt.y <= q.y + NODE_H) {
-        return { id, note: `pt=(${pt.x.toFixed(0)},${pt.y.toFixed(0)})` };
+      if (
+        pt.x >= q.x - PAD && pt.x <= q.x + NODE_W + PAD &&
+        pt.y >= q.y - PAD && pt.y <= q.y + NODE_H + PAD
+      ) {
+        return id;
       }
     }
-    const first = laid.pos.values().next().value;
-    return {
-      id: null,
-      note: `pt=(${pt.x.toFixed(0)},${pt.y.toFixed(0)}) 节点数=${laid.pos.size}` +
-        (first ? ` 首节点=(${first.x},${first.y})` : ""),
-    };
+    return null;
   };
 
   useEffect(() => {
     if (!devDrag) return;
     const move = (e: PointerEvent) => {
       setDevDrag((d) => (d ? { ...d, x: e.clientX, y: e.clientY } : d));
-      const h = hitInfo(e.clientX, e.clientY);
-      setDevOver(h.id);
-      if (import.meta.env.DEV) {
-        setDiag(`move (${e.clientX},${e.clientY}) 命中=${h.id ?? "·"} ${h.note}`);
-      }
+      setDevOver(nodeUnderPoint(e.clientX, e.clientY));
     };
     const up = (e: PointerEvent) => {
-      const h = hitInfo(e.clientX, e.clientY);
-      const target = h.id;
+      const target = nodeUnderPoint(e.clientX, e.clientY);
       const id = devDrag.id;
       setDevDrag(null);
       setDevOver(null);
-      if (import.meta.env.DEV) setDiag(`UP (${e.clientX},${e.clientY}) 落点=${target ?? "空"} ${h.note}`);
-      if (target) {
-        api.mapAssign(id, target).then(
-          (v) => {
-            setView(v);
-            if (import.meta.env.DEV) setDiag((d) => d + " → assign OK");
-          },
-          (x) => {
-            if (import.meta.env.DEV) setDiag((d) => d + " → assign ERR: " + String(x));
-            onError(String(x));
-          }
-        );
-      }
+      if (target) api.mapAssign(id, target).then(setView, (x) => onError(String(x)));
     };
     const cancel = () => {
       setDevDrag(null);
       setDevOver(null);
-      if (import.meta.env.DEV) setDiag("POINTERCANCEL —— 指针流被系统取消");
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -834,9 +812,6 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                       // 只认主键；起手即进入拖拽态，拖影跟着光标走
                       if (e.button !== 0) return;
                       e.preventDefault();
-                      if (import.meta.env.DEV) {
-                        setDiag(`DOWN ${d.name} (${e.clientX},${e.clientY}) 类型=${e.pointerType}`);
-                      }
                       setDevDrag({ id: d.id, name: d.name, x: e.clientX, y: e.clientY });
                     }}
                   >
@@ -849,23 +824,12 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                 ))}
               </div>
 
-              {import.meta.env.DEV &&
-                diag &&
-                createPortal(
-                  <div
-                    style={{
-                      position: "fixed", left: 8, bottom: 8, zIndex: 60, pointerEvents: "none",
-                      fontFamily: "monospace", fontSize: 12, padding: "4px 8px",
-                      background: "#000c", color: "#8be9fd", maxWidth: "90vw",
-                    }}
-                  >
-                    {diag}
-                  </div>,
-                  document.body
-                )}
               {devDrag &&
                 createPortal(
-                  <div className="map-dragghost" style={{ left: devDrag.x + 10, top: devDrag.y + 8 }}>
+                  <div
+                    className="map-dragghost"
+                    style={{ left: devDrag.x, top: devDrag.y, transform: "translate(-50%, -50%)" }}
+                  >
                     {devDrag.name}
                   </div>,
                   document.body

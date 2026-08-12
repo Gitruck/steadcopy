@@ -284,7 +284,9 @@ table.kv tbody tr:hover { background: none; }
 .map-node .nm { fill: var(--fg); font-size: 12px; pointer-events: none; }
 .map-node.sel .box { stroke: var(--accent); }
 .map-node.lift { opacity: .55; }
-.map-node.drop .box { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; }
+/* 命中高亮要一眼可见：细虚线在暗底上太含蓄，主理人真机上就没注意到。
+   整块泛蓝 + 粗虚线边，「放这儿」不容误读 */
+.map-node.drop .box { stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 5 3; fill: rgba(47, 111, 235, .16); }
 .map-node .cnt circle { fill: #12243a; stroke: var(--running); }
 .map-node .cnt text { fill: var(--running); font-size: 10px; pointer-events: none; }
 
