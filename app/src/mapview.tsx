@@ -549,14 +549,25 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
     return () => window.removeEventListener("keydown", h);
   }, [renaming, adding]);
 
-  // 幽灵输入框的落点：新节点出现在它将要归属的那一列的下方空白处
+  // 幽灵输入框的落点：**新节点将来真正落位的地方**，而不是整棵树底下的空白处。
+  //
+  // 之前放在画布最底部，跟父节点隔着半个屏幕、没有任何视觉连接——用户点了
+  // 「加子节点」，输入框却在右下角凭空冒出来，看不出「这框跟我选的节点有什么关系」。
+  // 现在：父节点右一列；父节点没有孩子就跟它同一行（第一个孩子正是落在这），
+  // 有孩子就排在最后一个孩子下面。顶层节点则排在整棵树的下方首列。
+  // 配套画一条到父节点的虚线预览边（见画布渲染处）。
   const ghostPos = useMemo((): Pos | null => {
     if (!adding) return null;
-    const bottomY = laid.rows * ROW + 10;
-    if (adding.parentId === null) return { x: 0, y: bottomY };
+    if (adding.parentId === null) return { x: 0, y: laid.rows * ROW + 10 };
     const pp = laid.pos.get(adding.parentId);
-    return { x: (pp ? pp.x : 0) + COL, y: bottomY };
-  }, [adding, laid]);
+    if (!pp) return { x: 0, y: laid.rows * ROW + 10 };
+    const parent = view?.nodes.find((n) => n.id === adding.parentId);
+    const kids = (parent?.children ?? [])
+      .map((id) => laid.pos.get(id))
+      .filter((q): q is Pos => q !== undefined);
+    const y = kids.length === 0 ? pp.y : Math.max(...kids.map((q) => q.y)) + ROW;
+    return { x: pp.x + COL, y };
+  }, [adding, laid, view]);
 
   const renamePos = renaming ? laid.pos.get(renaming) : undefined;
 
@@ -857,6 +868,16 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                     );
                   })}
 
+                  {adding && ghostPos && adding.parentId && laid.pos.get(adding.parentId) && (
+                    <path
+                      className="map-edge ghost"
+                      d={(() => {
+                        const pp = laid.pos.get(adding.parentId)!;
+                        const midX = ghostPos.x - (COL - NODE_W) / 2;
+                        return `M ${pp.x + NODE_W} ${pp.y + NODE_H / 2} H ${midX} V ${ghostPos.y + NODE_H / 2} H ${ghostPos.x}`;
+                      })()}
+                    />
+                  )}
                   {adding && ghostPos && (
                     <foreignObject x={ghostPos.x} y={ghostPos.y} width={NODE_W + 90} height={NODE_H + 6}>
                       <input

@@ -290,6 +290,8 @@ table.kv tbody tr:hover { background: none; }
 
 /* 树的父子边：细直角折线，中性色——它是结构，不承载状态 */
 .map-edge { stroke: var(--dim); stroke-width: 1.25; fill: none; }
+/* 幽灵输入框的预览边：虚线明示「还没成真」——按下 Enter 才变实线 */
+.map-edge.ghost { stroke: var(--accent); stroke-dasharray: 4 4; }
 
 /* 设备落位连线：直角折线 + 车道口设备名标签。进行中沿线流动 */
 .map-line { stroke-width: 1.5; fill: none; }
