@@ -365,7 +365,7 @@ export const en: Record<Key, string> = {
   "map.toTop": "Move to top level",
   "map.center": "Center",
   "map.hintKeys":
-    "Tab adds a node (top-level when nothing is selected, child of the selection otherwise) · double-click/F2 rename · Delete remove · drag onto another node to re-parent · click a device name on a line to disconnect · wheel zoom · drag empty space to pan",
+    "Tab adds a node (top-level when nothing is selected, child of the selection otherwise) · double-click/F2 rename · Delete remove · Ctrl+Z undo · drag onto another node to re-parent · click a device name on a line to disconnect · wheel zoom · drag empty space to pan",
   "map.newNamePlaceholder": "Folder name; placeholders like {项目}{日期}{设备} are allowed",
   "map.deleteConfirm":
     "Delete \"{name}\" and its whole subtree? Only the map changes — folders on disk are untouched.",
@@ -391,8 +391,10 @@ export const en: Record<Key, string> = {
   "map.templateName": "Template name",
   "map.templateSave": "Save",
   "map.clearMap": "New map",
+  "map.undo": "Undo",
   "map.clearMapConfirm": "Clear the whole tree and every connection on this canvas? Folders on disk are untouched, and saved templates stay.",
   "map.refresh": "Refresh nodes",
+  "map.unassignTip": "Disconnect this line (nothing on disk changes; it only cancels copying this card into this folder)",
   "map.landing": "Lands in: {root}",
   "map.landingMore": "(plus {n} more destination(s), one copy each)",
   "map.selPath": "Selected node = {path}",

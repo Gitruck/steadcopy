@@ -572,21 +572,32 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
   // 但点节点时指针捕获在 SVG 上、焦点并不落到画布，Tab 就被浏览器当成
   // 焦点切换吃掉了——「按了没反应」。挂 window 后不依赖焦点；
   // 正在输入框里打字（改名、模板名、别的页面元素）一律不劫持。
+  const doUndo = () => {
+    if (!view?.can_undo) return;
+    api.mapUndo().then(setView, (e) => onError(String(e)));
+  };
+
   const selRef = useRef(sel);
   const startAddRef = useRef(startAdd);
   const startRenameRef = useRef(startRename);
   const removeNodeRef = useRef(removeNode);
+  const doUndoRef = useRef(doUndo);
   selRef.current = sel;
+  doUndoRef.current = doUndo;
   startAddRef.current = startAdd;
   startRenameRef.current = startRename;
   removeNodeRef.current = removeNode;
+  doUndoRef.current = doUndo;
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (renaming || adding) return;
       const el = e.target as HTMLElement | null;
       if (el && (el.closest("input, textarea, select") || el.isContentEditable)) return;
-      if (e.key === "Tab") {
+      if (e.ctrlKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        doUndoRef.current();
+      } else if (e.key === "Tab") {
         e.preventDefault();
         startAddRef.current(selRef.current);
       } else if (e.key === "F2") {
@@ -732,6 +743,9 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                   onClick={clearMap}
                 >
                   {t("map.clearMap")}
+                </button>
+                <button className="btn sm" disabled={!view.can_undo} onClick={doUndo}>
+                  {t("map.undo")}
                 </button>
                 {nAssign === 0 && <span className="small dim">{t("map.startAllNone")}</span>}
                 <div className="grow" />
@@ -898,15 +912,23 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                           style={{ stroke: l.color }}
                           d={`M ${startX} ${laneY} H ${descX} V ${yC} H ${p.x}`}
                         />
-                        <text
-                          className="map-line-label"
-                          style={{ fill: l.color }}
-                          x={startX}
-                          y={laneY - 4}
-                          onClick={() => unassign(l)}
-                        >
-                          {running ? `${l.deviceName} · ${Math.round(pct)}%` : l.deviceName}
-                        </text>
+                        {(() => {
+                          const label = running ? `${l.deviceName} · ${Math.round(pct)}%` : l.deviceName;
+                          // 估宽：CJK 按 10.5、拉丁按 6 —— 只是画底框，不必精确
+                          const w = [...label].reduce((a, c) => a + (c.charCodeAt(0) > 0xff ? 10.5 : 6), 0) + 22;
+                          return (
+                            <g className="map-line-chip" onClick={() => unassign(l)}>
+                              <title>{t("map.unassignTip")}</title>
+                              <rect x={startX - 4} y={laneY - 17} width={w} height={16} rx={0} style={{ stroke: l.color }} />
+                              <text className="map-line-label" style={{ fill: l.color }} x={startX} y={laneY - 5}>
+                                {label}
+                              </text>
+                              <text className="map-line-x" x={startX + w - 14} y={laneY - 5}>
+                                ×
+                              </text>
+                            </g>
+                          );
+                        })()}
                       </g>
                     );
                   })}

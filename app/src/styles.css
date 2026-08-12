@@ -309,7 +309,16 @@ table.kv tbody tr:hover { background: none; }
 
 /* 设备落位连线：直角折线 + 车道口设备名标签。进行中沿线流动 */
 .map-line { stroke-width: 1.5; fill: none; }
-.map-line-label { font-size: 10.5px; cursor: pointer; }
+/* 线上的摘线胶囊：**长得像按钮**。此前只是一段带 cursor:pointer 的文字，
+   主理人两轮都没发现能点——「可点」必须靠形状说话，不能指望提示条 */
+.map-line-chip { cursor: pointer; }
+.map-line-chip rect { fill: var(--panel-2); stroke-width: 1; }
+.map-line-chip:hover rect { stroke: var(--danger) !important; }
+.map-line-chip:hover .map-line-label,
+.map-line-chip:hover .map-line-x { fill: var(--danger) !important; }
+.map-line-label { font-size: 10.5px; }
+.map-line-x { font-size: 11px; fill: var(--muted); }
+.map-unassign-btn { font-family: var(--mono); }
 .map-line-g.running .map-line { stroke-dasharray: 6 4; animation: map-flow .9s linear infinite; }
 @keyframes map-flow { to { stroke-dashoffset: -10; } }
 

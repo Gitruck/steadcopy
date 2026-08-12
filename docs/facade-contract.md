@@ -107,6 +107,7 @@ nothing                     不用做什么（已忽略 / 已有任务在跑）
 | `map_template_save` | `name` | `MapView` | 树存成模板。落位被剥掉——落位是工位现场的事，换个项目、换一天，卡都不是同一批 |
 | `map_template_apply` | `templateId` | `MapView` | 套用到当前项目 |
 | `map_clear` | — | `MapView` | 清空当前项目的整棵树与连线。磁盘与模板都不动——导图从不删用户文件 |
+| `map_undo` | — | `MapView` | Ctrl+Z：退回上一次画布改动（树+连线）。撤销栈是会话态（重启归零、每项目上限 50 步），只有成功的改动入栈；派发与模板管理不入栈——撤销只管画布。栈空如实报错不静默。`MapView.can_undo` 供按钮亮灭 |
 | `map_template_delete` | `templateId` | `MapView` | |
 
 错误一律 `Result<_, String>`，串来自 core 的 `describe(lang)`（`lang` 取配置的语言设置）——门面不造句，界面与命令行不会漂出两套说法。

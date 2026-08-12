@@ -316,6 +316,8 @@ export type MapView = {
   /** 导图长在哪个项目上。null = 还没有项目，界面显示空态引导 */
   project_id: string | null;
   project_name: string | null;
+  /** 有没有可撤销的改动（撤销按钮亮灭）。会话态，重启归零 */
+  can_undo: boolean;
   /** 项目启用中的目的地根目录。节点 = 这些根目录下的同名真实文件夹 */
   destinations: string[];
   nodes: MapNode[];
@@ -419,6 +421,8 @@ export const api = {
     invoke<MapView>("map_template_delete", { templateId }),
   /** 清空当前项目的导图。磁盘与模板都不动，只归零画布。 */
   mapClear: () => invoke<MapView>("map_clear"),
+  /** Ctrl+Z：退回上一次画布改动。只退树与连线，不碰磁盘/任务/模板库 */
+  mapUndo: () => invoke<MapView>("map_undo"),
 
   // 台账
   listHistory: (onlyFailed = false, limit?: number) =>

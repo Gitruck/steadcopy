@@ -1047,6 +1047,8 @@ struct MapView {
     /// 导图长在哪个项目上。没有项目时为 null，界面据此显示「先建项目」的空态
     project_id: Option<String>,
     project_name: Option<String>,
+    /// 有没有可撤销的改动（Ctrl+Z 按钮的亮灭）。会话态，重启归零
+    can_undo: bool,
     /// 项目启用中的目的地根目录（显示用）。
     ///
     /// 「节点 = 目的地根目录下的真实文件夹」这层对应关系必须钉在界面上——
@@ -1062,6 +1064,7 @@ fn map_view_of(cfg: &Config) -> MapView {
     let empty = FolderMap::default();
     let map = project.and_then(|p| p.map.as_ref()).unwrap_or(&empty);
     MapView {
+        can_undo: map_can_undo(project.map(|p| p.id.as_str())),
         project_id: project.map(|p| p.id.clone()),
         project_name: project.map(|p| p.name.clone()),
         // 没有项目就没有落地位置——空列表是「无处可落」的如实呈现，
@@ -1122,7 +1125,40 @@ fn map_no_project(lang: Locale) -> String {
     .to_string()
 }
 
+/// 导图的撤销栈：项目 id → 改动前的快照序列。
+///
+/// **会话态，刻意不落盘**——撤销撤的是「刚才那一下手滑」，跨重启的撤销
+/// 是另一种产品（版本历史），别混。快照是整棵 `FolderMap`：树很小
+/// （深度 ≤12、节点数以十计），全量快照最不容易出「撤了一半」的鬼；
+/// 只有**成功的**改动才入栈，失败的操作树没变，入栈会造出「按一次没反应」
+/// 的空撤销。派发/模板管理不入栈：撤销只管画布（树 + 连线），不管任务与模板库。
+static MAP_HISTORY: std::sync::LazyLock<Mutex<HashMap<String, Vec<Option<FolderMap>>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// 每个项目最多留这么多步。50 步覆盖一整次现场编排还有富余；
+/// 再多就是内存里养蛊
+const MAP_HISTORY_CAP: usize = 50;
+
+fn map_history_push(pid: &str, before: Option<FolderMap>) {
+    // 锁中毒时宁可丢历史也不拦操作：撤销是便利，改图是正事
+    if let Ok(mut h) = MAP_HISTORY.lock() {
+        let stack = h.entry(pid.to_string()).or_default();
+        stack.push(before);
+        if stack.len() > MAP_HISTORY_CAP {
+            stack.remove(0);
+        }
+    }
+}
+
+fn map_can_undo(pid: Option<&str>) -> bool {
+    match (pid, MAP_HISTORY.lock()) {
+        (Some(pid), Ok(h)) => h.get(pid).is_some_and(|s| !s.is_empty()),
+        _ => false,
+    }
+}
+
 /// 对当前项目的导图做一次修改：core 校验通过才落盘，失败不留半改状态。
+/// 成功的改动把改动前的快照压进撤销栈（Ctrl+Z 从这里回来）。
 fn mutate_map<T>(
     op: impl FnOnce(&mut FolderMap, Locale) -> Result<T, String>,
 ) -> Result<MapView, String> {
@@ -1133,8 +1169,37 @@ fn mutate_map<T>(
         .map(|p| p.id.clone())
         .ok_or_else(|| map_no_project(lang))?;
     let project = cfg.project_mut(&pid).ok_or_else(|| map_no_project(lang))?;
+    let before = project.map.clone();
     let map = project.map.get_or_insert_with(FolderMap::default);
     op(map, lang)?;
+    save_cfg(&cfg)?;
+    map_history_push(&pid, before);
+    Ok(map_view_of(&cfg))
+}
+
+/// Ctrl+Z：把当前项目的导图退回上一次改动之前。
+///
+/// 只退画布（树 + 连线），不碰磁盘、不碰任务、不碰模板库。
+/// 栈空时如实报「没有可撤销的改动」而不是静默无事——静默无事最难查。
+#[tauri::command]
+fn map_undo() -> Result<MapView, String> {
+    let mut cfg = load_cfg()?;
+    let lang = lang_of(&cfg);
+    let pid = cfg
+        .effective_project()
+        .map(|p| p.id.clone())
+        .ok_or_else(|| map_no_project(lang))?;
+    let popped = MAP_HISTORY
+        .lock()
+        .ok()
+        .and_then(|mut h| h.get_mut(&pid).and_then(|s| s.pop()));
+    let Some(before) = popped else {
+        return Err(lang
+            .pick("没有可撤销的改动", "Nothing to undo")
+            .to_string());
+    };
+    let project = cfg.project_mut(&pid).ok_or_else(|| map_no_project(lang))?;
+    project.map = before;
     save_cfg(&cfg)?;
     Ok(map_view_of(&cfg))
 }
@@ -1439,11 +1504,13 @@ fn map_refresh_apply(confirmed: Vec<String>) -> Result<MapView, String> {
     let project = cfg.project_mut(&pid).ok_or_else(|| map_no_project(lang))?;
     let root = map_refresh_root(project, lang)?;
     let map = project.map.get_or_insert_with(FolderMap::default);
+    let before = Some(map.clone());
     let plan = diff_refresh(map, &root)
         .map_err(|e| e.describe(lang))?
         .confirmed_only(&confirmed);
     apply_refresh(map, &plan).map_err(|e| e.describe(lang))?;
     save_cfg(&cfg)?;
+    map_history_push(&pid, before);
     Ok(map_view_of(&cfg))
 }
 
@@ -1493,8 +1560,10 @@ fn map_template_apply(template_id: String) -> Result<MapView, String> {
         .map(|p| p.id.clone())
         .ok_or_else(|| map_no_project(lang))?;
     let project = cfg.project_mut(&pid).ok_or_else(|| map_no_project(lang))?;
+    let before = project.map.clone();
     project.map = Some(instance);
     save_cfg(&cfg)?;
+    map_history_push(&pid, before);
     Ok(map_view_of(&cfg))
 }
 
@@ -1512,10 +1581,12 @@ fn map_clear() -> Result<MapView, String> {
         .map(|p| p.id.clone())
         .ok_or_else(|| map_no_project(lang))?;
     let project = cfg.project_mut(&pid).ok_or_else(|| map_no_project(lang))?;
+    let before = project.map.clone();
     if let Some(m) = project.map.as_mut() {
         m.clear();
     }
     save_cfg(&cfg)?;
+    map_history_push(&pid, before);
     Ok(map_view_of(&cfg))
 }
 
@@ -2794,6 +2865,7 @@ pub fn run() {
             map_template_apply,
             map_template_delete,
             map_clear,
+            map_undo,
             list_history,
             task_files,
             clear_history,
