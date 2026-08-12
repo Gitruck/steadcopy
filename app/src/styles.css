@@ -293,6 +293,15 @@ table.kv tbody tr:hover { background: none; }
 /* 幽灵输入框的预览边：虚线明示「还没成真」——按下 Enter 才变实线 */
 .map-edge.ghost { stroke: var(--accent); stroke-dasharray: 4 4; }
 
+/* 设备拖影：pointer 手写拖拽的浮层。pointer-events:none 是功能性的——
+   挡住 elementFromPoint 的话，命中测试永远只打到拖影自己 */
+.map-dragghost {
+  position: fixed; z-index: 40; pointer-events: none;
+  padding: 5px 10px; font-size: 12px; color: var(--fg);
+  background: var(--panel-2); border: 1px solid var(--accent); border-radius: 0;
+}
+.map-devcard { cursor: grab; user-select: none; touch-action: none; }
+
 /* 设备落位连线：直角折线 + 车道口设备名标签。进行中沿线流动 */
 .map-line { stroke-width: 1.5; fill: none; }
 .map-line-label { font-size: 10.5px; cursor: pointer; }

@@ -29,8 +29,6 @@ const LINE_COLORS = ["var(--running)", "var(--warn)", "var(--accent)"];
 /** 刷新清单折叠时露几条。5 条够判断「这批是不是我要的」，又不至于占半屏。 */
 const REFRESH_PREVIEW_COLLAPSED = 5;
 
-const DEV_MIME = "application/x-steadcopy-device";
-
 type Pos = { x: number; y: number };
 type Notice = { kind: "ok" | "warn"; text: string };
 type Line = {
@@ -87,6 +85,11 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
   // 拖设备时悬停在哪个节点上。与拖节点换父的 dropTarget 分开：
   // 两件事同时只会发生一件，但混用一个状态会让「拖到一半切换来源」留下脏高亮
   const [devOver, setDevOver] = useState<string | null>(null);
+  // 设备拖拽是 **pointer 事件手写的**，不用 HTML5 DnD。
+  // 真机（WebView2）上后者事件送不进页面：先是 dropEffect 的坑，关掉窗口的
+  // 原生拖放拦截（dragDropEnabled=false）之后依然收不到 dragover——
+  // 而画布节点的 pointer 拖拽一直好用。同一条已验证的路，设备卡照走。
+  const [devDrag, setDevDrag] = useState<{ id: string; name: string; x: number; y: number } | null>(null);
   const [addVal, setAddVal] = useState("");
   const [notices, setNotices] = useState<Notice[]>([]);
   const [refreshList, setRefreshList] = useState<MapRefreshPreview | null>(null);
@@ -418,15 +421,35 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
     api.mapUnassign(l.id).then(setView, (e) => onError(String(e)));
   };
 
-  const onDeviceDrop = (e: React.DragEvent, nodeId: string) => {
-    // preventDefault 必须在最前：晚一步浏览器就按默认行为处理掉了
-    e.preventDefault();
-    setDevOver(null);
-    // 自定义 MIME 在个别引擎里取不到，退回 text/plain——dragstart 两个都塞了
-    const id = e.dataTransfer.getData(DEV_MIME) || e.dataTransfer.getData("text/plain");
-    if (!id) return;
-    api.mapAssign(id, nodeId).then(setView, (x) => onError(String(x)));
+  /** 光标下是哪个节点。用 elementFromPoint 而不是自己算 viewBox 逆变换：
+   *  它天然跟着真实渲染走，缩放平移都不用管；拖影 pointer-events:none 不会挡它。 */
+  const nodeUnderPoint = (cx: number, cy: number): string | null => {
+    const el = document.elementFromPoint(cx, cy);
+    const g = el?.closest?.("[data-node-id]");
+    return g ? (g as HTMLElement).getAttribute("data-node-id") : null;
   };
+
+  useEffect(() => {
+    if (!devDrag) return;
+    const move = (e: PointerEvent) => {
+      setDevDrag((d) => (d ? { ...d, x: e.clientX, y: e.clientY } : d));
+      setDevOver(nodeUnderPoint(e.clientX, e.clientY));
+    };
+    const up = (e: PointerEvent) => {
+      const target = nodeUnderPoint(e.clientX, e.clientY);
+      const id = devDrag.id;
+      setDevDrag(null);
+      setDevOver(null);
+      if (target) api.mapAssign(id, target).then(setView, (x) => onError(String(x)));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [devDrag !== null]);
 
   // ---- 派发 / 刷新 / 模板 ----
 
@@ -762,14 +785,11 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                   <div
                     key={d.id}
                     className="dev usable map-devcard"
-                    draggable
-                    onDragEnd={() => setDevOver(null)}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData(DEV_MIME, d.id);
-                      // text/plain 兜底：自定义 MIME 在个别引擎的 drop 里取不到
-                      e.dataTransfer.setData("text/plain", d.id);
-                      // 用 copy 而不是 link：link 在 Chromium 下不按修饰键就被算成 none
-                      e.dataTransfer.effectAllowed = "copy";
+                    onPointerDown={(e) => {
+                      // 只认主键；起手即进入拖拽态，拖影跟着光标走
+                      if (e.button !== 0) return;
+                      e.preventDefault();
+                      setDevDrag({ id: d.id, name: d.name, x: e.clientX, y: e.clientY });
                     }}
                   >
                     <div className="hd">
@@ -781,6 +801,11 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                 ))}
               </div>
 
+              {devDrag && (
+                <div className="map-dragghost" style={{ left: devDrag.x + 10, top: devDrag.y + 8 }}>
+                  {devDrag.name}
+                </div>
+              )}
               <div className="map-canvas" ref={wrapRef}>
                 <svg
                   ref={svgRef}
@@ -853,19 +878,10 @@ export function MapPanel({ onError }: { onError: (e: string) => void }) {
                       <g
                         key={n.id}
                         className={cls}
+                        data-node-id={n.id}
                         transform={`translate(${p.x},${p.y})`}
                         onPointerDown={(e) => onNodePointerDown(e, n.id)}
                         onDoubleClick={() => startRename(n.id)}
-                        onDragOver={(e) => {
-                          // **dropEffect 必须显式设。** 不设的话 Chromium 会按
-                          // effectAllowed 算出 "none"，光标变成禁止符号、drop 根本不触发——
-                          // 「设备拖不过来」就是这么来的，而代码看起来一切正常。
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = "copy";
-                          if (devOver !== n.id) setDevOver(n.id);
-                        }}
-                        onDragLeave={() => setDevOver((cur) => (cur === n.id ? null : cur))}
-                        onDrop={(e) => onDeviceDrop(e, n.id)}
                       >
                         <rect className="box" width={NODE_W} height={NODE_H} />
                         <rect className="mark" width={3} height={NODE_H} />
