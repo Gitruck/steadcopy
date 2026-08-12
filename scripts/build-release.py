@@ -112,6 +112,10 @@ def main():
     # app/src-tauri 是独立 workspace，上面那行扫不到它——不单列一行，
     # 它里头的测试（更新来源白名单等）就永远不会跑
     run(["cargo", "test", "--manifest-path", APP_MANIFEST])
+    # 发布脚本自己的安全轨（标准库 unittest，不引 pytest——发布链上多一个 pip
+    # 依赖就多一个「装不上就发不了版」的单点）
+    run([sys.executable, "-m", "unittest", "discover", "-s",
+         os.path.join("scripts", "tests")])
 
     step(3, total, "静态检查")
     run(["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])

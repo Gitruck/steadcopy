@@ -18,12 +18,18 @@
 ```bash
 cargo test --workspace
 cargo test --manifest-path app/src-tauri/Cargo.toml
+python -m unittest discover -s scripts/tests
+python scripts/tests/selfproof.py
 ```
 
 要求：0 failed。危险轨的 `#[ignore]` 计数与 `docs/danger-tests.md` 登记数一致（多出来的说明有人偷偷加了危险测试）。
 
 `app/src-tauri` 是**独立 workspace**，根目录的 `--workspace` 扫不到它——更新端点白名单那几条测试就住在那里，
 少跑第二条命令等于这一门根本没验。
+
+第三条是发布脚本自己的安全轨（校验码不符要拒发、清单必须最后写、回读不过不宣布、
+产物按打包顺序区分、体积量级不符要拒）。第四条是**护栏自证**：逐道弄坏那些闸门，
+确认对应测试真的会红——一条永远绿的测试比没有测试更糟，它让人以为这块有人看着。
 
 ## R2 静态检查全绿
 

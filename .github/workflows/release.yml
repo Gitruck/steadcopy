@@ -57,6 +57,12 @@ jobs:
         run: |
           cargo test --workspace
           cargo test --manifest-path app/src-tauri/Cargo.toml
+          python -m unittest discover -s scripts/tests
+
+      # 护栏自证：逐道弄坏发布脚本的闸门，确认对应测试真的会红。
+      # 一条永远绿的测试比没有测试更糟——它让人以为这块有人看着。
+      - name: 发布脚本护栏自证
+        run: python scripts/tests/selfproof.py
 
       - name: 静态检查
         run: |

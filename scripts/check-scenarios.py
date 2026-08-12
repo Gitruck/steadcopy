@@ -64,15 +64,9 @@ EXEMPT = {
         "镜像不可达时回落 GitHub": "同上",
         "仓库私有时 GitHub 端点 404 而镜像仍可用": "同上（已在复核中实测过两个端点的 404 行为）",
 
-        # ↓↓↓ 这四条是**真缺口**，不是「测不了」。它们验的是 Python 发布脚本的行为，
-        # 而本仓没有 Python 测试基座。列在这里是为了让闸门能过，但它们该补：
-        # 判据都是纯函数式的（给一个目录、看脚本认不认），建一个最小的 Python 测试
-        # 目录就能覆盖。补之前，只能靠门控 R16 逐项人工确认。
-        "字节不一致则拒绝发布": "【缺口】publish-mirror.py 的 check_checksums；本仓无 Python 测试基座，暂靠门控 R16",
-        "清单先于安装包写入则视为失败": "【缺口】publish-mirror.py 的写入顺序；同上",
-        "回读不通过则不宣布更新可用": "【缺口】publish-mirror.py 的 verify_live；同上",
-        "产物按打包顺序区分而非按文件名": "【缺口】build-release.py 的 clear_bundle + collect；同上",
-        "体积量级不符则拒绝出包": "【缺口】build-release.py 的 collect 体积断言；同上",
+        # （这里原先挂着五条【缺口】：Python 发布脚本的行为没有测试。
+        #   现在 scripts/tests/ 用标准库 unittest 覆盖了，并有 selfproof.py
+        #   逐道弄坏闸门确认测试真的会红——豁免已删。）
     },
     "device-registry": {
         "插入设备触发到达事件": "由 scenario_preset_autorun_mock_watcher_delivers_events 覆盖",
@@ -123,9 +117,42 @@ WORKSPACES = [
 ]
 
 
+def python_test_names():
+    """Python 测试的名字。
+
+    发布脚本的场景由 `scripts/tests/` 下的 unittest 覆盖。方法名统一带 `test_` 前缀
+    （unittest 靠它发现），这里剥掉，好与 Rust 侧的 `scenario_<能力>_` 归一。
+
+    用 `TestLoader.discover` 而不是正则扫源码：拿的是**真实注册**的测试，
+    与 Rust 侧用 `cargo test --list` 是同一个口径——写在文件里但没被收进去的不算。
+    """
+    import unittest
+
+    names = set()
+    tests_dir = os.path.join(ROOT, "scripts", "tests")
+    if not os.path.isdir(tests_dir):
+        return names
+    sys.path.insert(0, tests_dir)
+    try:
+        suite = unittest.TestLoader().discover(tests_dir, top_level_dir=tests_dir)
+    finally:
+        sys.path.remove(tests_dir)
+
+    def walk(s):
+        for item in s:
+            if isinstance(item, unittest.TestSuite):
+                walk(item)
+            else:
+                n = item._testMethodName
+                names.add(n[len("test_"):] if n.startswith("test_") else n)
+
+    walk(suite)
+    return names
+
+
 def test_names():
     """列出全部测试名。用 `cargo test -- --list`，拿的是真实注册的测试。"""
-    names = set()
+    names = python_test_names()
     for cmd in WORKSPACES:
         out = subprocess.run(
             cmd, capture_output=True, text=True,
