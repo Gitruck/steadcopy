@@ -1,6 +1,6 @@
 # 发布门控清单
 
-规范：`openspec/changes/add-steadcopy-release/specs/build-release/spec.md` → Requirement: 发布门控
+规范：能力 `build-release` 的 spec（openspec 私仓） → Requirement: 发布门控
 
 **任一项未通过就不发版。** 这份清单是「不发」的依据，不是「发了之后补」的备忘。
 每次发布把本文件复制一份到 `release/gate-<版本>.md`，逐项填结论与证据，连同产物一起留档。
@@ -65,7 +65,7 @@ python scripts/check-scenarios.py
 
 ## R6 clean-room 自检留痕
 
-对照 `openspec/project.md` 的继承边界：
+对照 openspec 私仓里记的继承边界：
 
 - 未复制前身任何源码、资源、图标、文案
 - 界面形态与前身、与调研过的同类产品均不构成近似（逐屏比对，结论写进 `release/gate-<版本>.md`）

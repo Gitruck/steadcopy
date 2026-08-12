@@ -1,6 +1,6 @@
 # 危险轨测试登记册
 
-> 本册是**双轨约束制**的账本。制度正本见 [`openspec/README.md`](../openspec/README.md) §三。
+> 本册是**双轨约束制**的账本。制度正本在 openspec 私仓（本仓的 submodule）。
 >
 > **铁律：本册中的测试 MUST NOT 在主理人本机执行。** 本机只跑安全轨（`cargo test` 默认不含 `#[ignore]`）。
 > 登记册与代码不一致 = 视为破坏纪律。新增危险轨测试 MUST 同步登记于此。

@@ -84,7 +84,7 @@ export function AdhocPanel({
               className="btn sm"
               disabled={dests.length >= 4}
               onClick={async () => {
-                const p = await openDialog({ directory: true, title: "拷到哪儿" });
+                const p = await openDialog({ directory: true, title: t("adhoc.pickDestTitle") });
                 if (typeof p === "string" && !dests.includes(p)) setDests([...dests, p]);
               }}
             >
@@ -205,7 +205,7 @@ export function SinkBar({
     s.kind === "diverged"
       ? t("sink.askDiverged", {
           preset: s.preset_name ?? "",
-          changed: s.changed.join("、"),
+          changed: s.changed.join(t("list.join")),
         })
       : t("sink.askNew", { device: s.device_name, project: s.project_name });
 
@@ -225,9 +225,9 @@ export function SinkBar({
             <>
               <span>{t("sink.alsoAs")}</span>
               <select value={kind} onChange={(e) => setKind(e.target.value as DeviceKind)}>
-                <option value="camera">摄影卡</option>
-                <option value="recorder">录音卡</option>
-                <option value="storage">素材盘</option>
+                <option value="camera">{t("kind.camera")}</option>
+                <option value="recorder">{t("kind.recorder")}</option>
+                <option value="storage">{t("kind.storage")}</option>
               </select>
             </>
           )}

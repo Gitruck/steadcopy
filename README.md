@@ -4,6 +4,7 @@
 
 面向中文创作者与小团队的 Windows 拷卡（DIT offload）工具。开源、MIT、**长期免费且含商用**。
 
+> 📖 **[上手教程](https://hocassian.feishu.cn/docx/BAALdIhzvoKkPLxlr8icZ4Nwn6d)** —— 面向第一次用拷卡工具的人，三分钟走通全流程
 > English: [README.en.md](README.en.md)
 
 ---
@@ -95,7 +96,7 @@ python scripts/build-release.py     # 一条命令出全部发布产物
 
 中文与英文，默认跟随系统，可在「设置 → 语言」切换，切完即时生效。
 
-> **当前状态如实说明**：界面骨架、插卡即跑链路、编排结论已全量双语；长尾还是中文——报告 HTML、命令行大部分输出、安全检查的细节、部分错误描述。这些**只会退回中文，不会变空白**：文案表是穷尽 `match`，缺的是译文不是分支。进度见 `openspec/changes/add-steadcopy-i18n/tasks.md` 第 6 节。
+> **当前状态如实说明**：界面骨架、插卡即跑链路、编排结论已全量双语；长尾还是中文——报告 HTML、命令行大部分输出、安全检查的细节、部分错误描述。这些**只会退回中文，不会变空白**：文案表是穷尽 `match`，缺的是译文不是分支。长尾清单在 openspec 私仓的 i18n change 里逐条列着。
 
 ## 已知边界
 
@@ -112,7 +113,7 @@ V1 能测什么 / 刻意没做什么见 [`docs/v1-acceptance.md`](docs/v1-accept
 
 ## 工作制度
 
-本仓遵守三套制度，正本在 [`openspec/README.md`](openspec/README.md)：
+本仓遵守三套制度。（`openspec/` 是本仓的 submodule，指向一个私有仓；未获授权的读者拿不到它。三制度的要点已摘在下面。）
 
 - **SDD**：OpenSpec，禁 propose→apply 一把梭，人审是不可跳过的闸门
 - **TDD**：规格锚定的 Detroit 式——每条 spec 场景对应一个同名测试；不 mock 文件系统，用真实临时目录 IO；对抗测试是一等公民

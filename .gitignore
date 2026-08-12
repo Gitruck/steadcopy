@@ -30,3 +30,14 @@ desktop.ini
 # 本地环境
 .env
 .env.local
+
+# openspec/ —— 工件归 Gitea 私仓 Gitruck/steadcopy-openspec（2026-08-11 主理人拍板分流）
+#
+# ⚠️ 永不移除本条：这些工件含与前身项目的 clean-room 继承边界（逐条点名了它的
+# 具体缺陷）与决策台账里的内部判断，主仓将来要公开，不该跟着走。
+#
+# openspec/ 现在是本仓的 submodule（见 .gitmodules）。本条对那个 gitlink 条目**无效**
+# （它是 `submodule add -f` 加的），保留本条是兜底：万一哪天 submodule 被 deinit、
+# openspec/ 变回普通目录时仍有屏蔽。
+# 真正的硬闸是 .git/hooks/pre-commit（装法见 openspec/hooks/install.sh）。
+openspec/

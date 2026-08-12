@@ -1,6 +1,6 @@
 # 杀软误报申报
 
-规范：`openspec/changes/add-steadcopy-release/specs/build-release/spec.md` → Requirement: 发布门控（R14）
+规范：能力 `build-release` 的 spec（openspec 私仓） → Requirement: 发布门控（R14）
 
 ## 为什么会误报
 

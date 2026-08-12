@@ -2,7 +2,7 @@
 
 ## 动手前必读
 
-1. [`openspec/project.md`](openspec/project.md) —— 立项上下文：定位与免费逻辑、**与前身 dit-2026 的 clean-room 继承边界**、品类基线与市场空位、架构、Windows 深坑、依赖许可地图、V1 范围与非目标、术语表。
+1. [`openspec/project.md`](openspec/project.md) —— 立项上下文：定位与免费逻辑、**与前身项目的 clean-room 继承边界**、品类基线与市场空位、架构、Windows 深坑、依赖许可地图、V1 范围与非目标、术语表。
 2. [`openspec/README.md`](openspec/README.md) —— **三制度正本**：SDD（OpenSpec）+ TDD（规格锚定的 Detroit 式）+ 双轨约束制；含决策台账 P1–P8。
 3. [`openspec/config.yaml`](openspec/config.yaml) —— 机器规则（propose / design / tasks 三阶段的硬要求）。
 
@@ -44,9 +44,10 @@ Windows 拷卡（DIT offload）工具。开源 MIT，长期免费含商用。**�
 
 **法律铁律（clean-room）**
 
-本项目重写自交接项目 dit-2026（原 FilmDIT），交接人要求重写 + 重命名 + 重定调、UI 不能像。
+本项目重写自一个交接来的项目，交接人要求重写 + 重命名 + 重定调、UI 不能像。
+（前身的具体身份与逐条继承边界见 openspec/project.md —— 那份归 Gitea 私仓，不进公开仓。）
 
-- **MUST NOT** 复制 dit-2026 的代码 / 文案 / 词典 / UI 布局 / 配色 / 窗口形态。
+- **MUST NOT** 复制前身的代码 / 文案 / 词典 / UI 布局 / 配色 / 窗口形态。
 - **MUST NOT** 复刻竞品有识别度的表达：影视飓风 Gate 的脑图画布 + 拖拽指派、Kocard 的三色流水线卡片布局。
 - **MUST NOT** 链接或抄写 GPL 系代码（xcp / Rapid Photo Downloader / OffloadBuddy）；xxHash 库 BSD-2 可链，其 `xxhsum` CLI 是 GPL 不可抄。
 - 品类公有域概念（多目的地、校验、路径模板、队列）可自由实现——四家商业产品全部具备，不构成任一家的专有表达。

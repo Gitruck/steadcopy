@@ -24,14 +24,28 @@ pub enum TaskStage {
 }
 
 impl TaskStage {
-    pub const fn label(self) -> &'static str {
+    /// 稳定的机读代码。**界面用它做判定**——拿本地化后的文案去比对，
+    /// 换个语言判定就会静默失效，而且失效得毫无征兆。
+    pub const fn code(self) -> &'static str {
         match self {
-            TaskStage::Planning => "规划",
-            TaskStage::Prechecking => "预检",
-            TaskStage::Copying => "拷贝",
-            TaskStage::Verifying => "校验",
-            TaskStage::Finishing => "收尾",
-            TaskStage::Finished => "完成",
+            TaskStage::Planning => "planning",
+            TaskStage::Prechecking => "prechecking",
+            TaskStage::Copying => "copying",
+            TaskStage::Verifying => "verifying",
+            TaskStage::Finishing => "finishing",
+            TaskStage::Finished => "finished",
+        }
+    }
+
+    /// 给人看的名字。只用于呈现，MUST NOT 参与任何判定。
+    pub const fn label(self, lang: crate::i18n::Locale) -> &'static str {
+        match self {
+            TaskStage::Planning => lang.pick("规划", "Planning"),
+            TaskStage::Prechecking => lang.pick("预检", "Pre-check"),
+            TaskStage::Copying => lang.pick("拷贝", "Copying"),
+            TaskStage::Verifying => lang.pick("校验", "Verifying"),
+            TaskStage::Finishing => lang.pick("收尾", "Finishing"),
+            TaskStage::Finished => lang.pick("完成", "Done"),
         }
     }
 
@@ -108,10 +122,17 @@ mod tests {
     }
 
     #[test]
-    fn scenario_copy_engine_stage_labels_are_chinese() {
+    fn scenario_copy_engine_stage_labels_are_localized() {
+        use crate::i18n::{has_cjk, Locale};
         for s in TaskStage::WITH_VERIFY {
-            assert!(!s.label().is_empty());
-            assert!(!s.label().is_ascii(), "阶段名应为中文：{}", s.label());
+            assert!(!s.label(Locale::Zh).is_empty());
+            assert!(!s.label(Locale::En).is_empty());
+            assert!(has_cjk(s.label(Locale::Zh)), "中文名没翻：{}", s.code());
+            assert!(!has_cjk(s.label(Locale::En)), "英文名混了中文：{}", s.code());
+
+            // 代码是判定用的，必须是稳定的 ASCII 且不随语言变
+            assert!(s.code().is_ascii(), "阶段代码必须是 ASCII：{}", s.code());
+            assert_ne!(s.code(), s.label(Locale::Zh), "代码与文案必须是两样东西");
         }
     }
 

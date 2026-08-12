@@ -85,8 +85,7 @@ export default function App() {
   return (
     <div className="shell">
       <nav className="nav">
-        <div className="brand">
-          稳拷 <small>steadcopy</small>
+        <div className="brand">{t("brand.name")}<small>steadcopy</small>
         </div>
         {TABS.map((x) => (
           <button key={x} className={tab === x ? "on" : ""} onClick={() => setTab(x)}>
@@ -215,14 +214,17 @@ function Workbench({
       }),
       events.onStage((p) => setStage(p.stage)),
       events.onProgress((p) => {
-        if (p.stage === "校验") setVerifyPct(p.percent);
+        // 用稳定代码判定，不拿本地化文案比对——换语言就静默失效
+        if (p.stage_code === "verifying") setVerifyPct(p.percent);
         else setCopyPct(p.percent);
         setCurrent(p.current);
         setSpeed(p.bytes_per_sec);
         setEta(p.eta_secs);
       }),
       events.onNotice((m) => setNotices((n) => [...n, m])),
-      events.onFileFailed((f) => setNotices((n) => [...n, `${f.path}：${f.reason}`])),
+      events.onFileFailed((f) =>
+        setNotices((n) => [...n, t("notice.fileFailed", { path: f.path, reason: f.reason })])
+      ),
       // 拷完全绿 + 危险区开关开着时后端会提议格式化。走的还是那套倒计时确认，
       // 一步都不少——「自动」省掉的只是找按钮，不是省掉确认。
       events.onFormatProposed((s) => setFormatTarget({ root: s.root, safety: s })),
@@ -265,7 +267,7 @@ function Workbench({
   return (
     <>
       <div className="topbar">
-        <span className="t">工位</span>
+        <span className="t">{t("nav.workbench")}</span>
         {/* 换项目是拍摄期最高频的操作之一，不该埋在设置页三层深处 */}
         {cfg.projects.length > 0 ? (
           <label className="row small muted" style={{ gap: 6, alignItems: "center" }}>
@@ -333,16 +335,16 @@ function Workbench({
               api.dismissArrival(arrival.device_id).catch(() => {});
               setArrival(null);
               if (dev) setAdhocFor({ root: dev.root, name: dev.name });
-              else onError("这个设备现在不在线，插上再试");
+              else onError(t("arrival.deviceOffline"));
             }}
             onViewLastReport={() => {
               api.listHistory(false, 20).then(
                 (h) => {
-                  const t = h.find(
+                  const rec = h.find(
                     (x) => x.source_id === arrival.device_id && x.manifests.length > 0
                   );
-                  if (t) onView(t.manifests[0]);
-                  else onError("台账里还没有这台设备的记录");
+                  if (rec) onView(rec.manifests[0]);
+                  else onError(t("history.noRecordForDevice"));
                 },
                 (e) => onError(String(e))
               );
@@ -366,7 +368,7 @@ function Workbench({
               <div className="small muted">
                 {/* 算不出来就说算不出来，不拿 0 或「计算中」糊弄 */}
                 {speed === null ? t("workbench.speedUnknown") : `${bytes(speed)}/s`}
-                {"　"}
+                {t("sep.wide")}
                 {eta === null ? t("workbench.etaUnknown") : t("workbench.etaAbout", { d: duration(eta) })}
               </div>
               {current && <div className="path">{current}</div>}
@@ -420,9 +422,7 @@ function Workbench({
           <header>
             {t("workbench.devices")}
             <span className="n">{t("workbench.devicesUsable", { n: usable.length })}</span>
-            <button className="btn sm" style={{ marginLeft: 8 }} onClick={refresh}>
-              刷新
-            </button>
+            <button className="btn sm" style={{ marginLeft: 8 }} onClick={refresh}>{t("app.refresh")}</button>
           </header>
           <div className="in">
             {usable.length > 0 && !running && !arrival && (
@@ -450,9 +450,16 @@ function Workbench({
                     <span className="tag t-ok">{t("workbench.canBeSource")}</span>
                   </div>
                   <div className="meta">
-                    {d.file_system || "—"} · {d.bus} · 剩余 {bytes(d.free_bytes)} /{" "}
-                    {bytes(d.total_bytes)}
-                    {d.fingerprints.length > 0 && ` · ${d.fingerprints.join("、")}`}
+                    {t("device.meta", {
+                      fs: d.file_system || "—",
+                      bus: d.bus,
+                      free: bytes(d.free_bytes),
+                      total: bytes(d.total_bytes),
+                    })}
+                    {d.fingerprints.length > 0 &&
+                      t("device.fingerprints", {
+                        list: d.fingerprints.join(t("list.join")),
+                      })}
                   </div>
                   <div className="bar">
                     <i
@@ -564,14 +571,12 @@ function ArrivalCard({
       case "choose_another_destination":
         return (
           <button className="btn primary" onClick={onCopyOnce}>
-            {a.next_step === "choose_another_destination" ? "换个目的地拷" : "就拷这一次"}
+            {a.next_step === "choose_another_destination" ? t("arrival.copyElsewhere") : t("arrival.copyOnceExit")}
           </button>
         );
       case "view_last_report":
         return (
-          <button className="btn" onClick={onViewLastReport}>
-            看上次的报告
-          </button>
+          <button className="btn" onClick={onViewLastReport}>{t("arrival.viewLastReport")}</button>
         );
       default:
         return null;
@@ -606,7 +611,7 @@ function ArrivalCard({
   if (a.outcome !== "planned") {
     return (
       <div className="panel arrival">
-        <header>插卡</header>
+        <header>{t("settings.onInsert")}</header>
         <div className="in col">
           <div className={a.outcome === "insufficient_space" ? "banner bad" : "banner warn"}>
             {a.summary}
@@ -632,15 +637,16 @@ function ArrivalCard({
       <div className="in col">
         <div className="row" style={{ alignItems: "baseline", gap: 10 }}>
           <span style={{ fontSize: 15, fontWeight: 600 }}>{a.device_name}</span>
-          <span className="muted small">
-            本次待拷 <b className="mono">{a.to_copy}</b> 个 ·{" "}
+          <span className="muted small">{t("arrival.toCopyPrefix")} <b className="mono">{a.to_copy}</b> {t("arrival.countUnit")} ·{" "}
             <b className="mono">{bytes(a.to_copy_bytes)}</b>
-            {a.skipped > 0 && `，已跳过 ${a.skipped} 个`}
+            {a.skipped > 0 && t("arrival.skippedN", { n: a.skipped })}
           </span>
         </div>
         {a.categories.length > 0 && (
           <div className="small dim">
-            {a.categories.map(([k, n, b]) => `${k} ${n} 个 / ${bytes(b)}`).join("　")}
+            {a.categories
+              .map(([k, n, b]) => t("arrival.category", { k, n, size: bytes(b) }))
+              .join(t("sep.wide"))}
           </div>
         )}
         <div className="small muted">{t("arrival.willCopyTo")}</div>
@@ -667,23 +673,23 @@ function Result({ r, onView }: { r: RunView; onView: (p: string) => void }) {
   return (
     <div className="col" style={{ gap: 8 }}>
       {r.cancelled ? (
-        <div className="banner warn">任务已取消。已完成并校验通过的部分不会重复拷贝。</div>
+        <div className="banner warn">{t("result.cancelled")}</div>
       ) : r.failed > 0 ? (
         <div className="banner bad">
-          部分失败：成功 {r.copied} 个，失败 {r.failed} 个
+          {t("result.partialN", { ok: r.copied, bad: r.failed })}
         </div>
       ) : (
         <div className="banner ok">
-          拷贝完成：{r.copied} 个文件 · {bytes(r.bytes_copied)} · 全部校验通过
-          {r.skipped > 0 && `（另跳过 ${r.skipped} 个，此前已拷并校验通过）`}
+          {t("result.okN", { n: r.copied, size: bytes(r.bytes_copied) })}
+          {r.skipped > 0 && t("result.okSkippedN", { n: r.skipped })}
         </div>
       )}
       {r.failures.length > 0 && (
         <table>
           <thead>
             <tr>
-              <th>失败的文件</th>
-              <th>原因</th>
+              <th>{t("result.failedFiles")}</th>
+              <th>{t("history.reason")}</th>
             </tr>
           </thead>
           <tbody>
@@ -699,9 +705,7 @@ function Result({ r, onView }: { r: RunView; onView: (p: string) => void }) {
       {r.manifests.map((m) => (
         <div key={m} className="row" style={{ alignItems: "center", gap: 8 }}>
           <span className="path grow">{m}</span>
-          <button className="btn sm primary" onClick={() => onView(m)}>
-            查看报告
-          </button>
+          <button className="btn sm primary" onClick={() => onView(m)}>{t("result.viewReport")}</button>
         </div>
       ))}
     </div>
@@ -728,16 +732,18 @@ function FormatDialog({
       <div className="viewer" onClick={onClose}>
         <div className="sheet narrow" onClick={(e) => e.stopPropagation()}>
           <header>
-            <span className="t danger-text">不能格式化</span>
+            <span className="t danger-text">{t("format.cannot")}</span>
           </header>
           <div className="in col">
             <div className="banner bad">
-              {failed ? `${failed.id}：${failed.detail}` : "前置检查未通过"}
+              {failed
+                ? t("format.checkFailed", { id: failed.id, detail: failed.detail })
+                : t("format.checksFailed")}
             </div>
             <SafetyChecks s={safety} />
             <div className="row" style={{ justifyContent: "flex-end" }}>
               <button className="btn" onClick={onClose}>
-                知道了
+                {t("app.gotIt")}
               </button>
             </div>
           </div>
@@ -748,9 +754,9 @@ function FormatDialog({
 
   return (
     <CountdownConfirm
-      title="⚠ 格式化存储卡"
+      title={t("format.title")}
       seconds={safety.countdown_secs}
-      confirmText="格式化"
+      confirmText={t("format.do")}
       requireTyped={safety.confirm_phrase}
       onCancel={onClose}
       onConfirm={async () => {
@@ -765,12 +771,17 @@ function FormatDialog({
       body={
         <div className="col" style={{ gap: 10 }}>
           <div>
-            即将格式化 <b>{safety.device_name}</b>（{safety.file_system}，
-            {safety.label.trim() ? `卷标「${safety.label}」` : "无卷标"}）
+            {t("format.aboutTarget", {
+              name: safety.device_name,
+              fs: safety.file_system,
+              label: safety.label.trim()
+                ? t("format.labelIs", { label: safety.label })
+                : t("format.noLabel"),
+            })}
           </div>
           <SafetyChecks s={safety} />
-          <div className="banner bad">此操作不可撤销，卡上全部数据将被清除。</div>
-          <div className="small muted">格式化后会保留原文件系统与卷标，相机才认得出这张卡。</div>
+          <div className="banner bad">{t("format.warning")}</div>
+          <div className="small muted">{t("format.preserves")}</div>
         </div>
       }
     />
@@ -803,15 +814,15 @@ function Presets({
   return (
     <>
       <div className="topbar">
-        <span className="t">预设任务</span>
-        <span className="muted small">决定「什么设备插上就怎么拷」，由窄到宽第一条命中</span>
+        <span className="t">{t("presets.title")}</span>
+        <span className="muted small">{t("presets.subtitle")}</span>
         <div className="r">
           <button
             className="btn sm primary"
             onClick={() =>
               setEditing({
                 id: `pst-new-${Date.now().toString(16)}`,
-                name: "新预设",
+                name: t("presets.newName"),
                 enabled: true,
                 match: { kind: "any_classified_source" },
                 project_id: cfg.current_project,
@@ -820,16 +831,12 @@ function Presets({
                 eject_after: false,
               })
             }
-          >
-            新建预设
-          </button>
+          >{t("presets.new")}</button>
         </div>
       </div>
       <div className="body col">
         {cfg.presets.length === 0 && (
-          <div className="empty">
-            还没有预设。插卡之后稳拷需要知道「这类卡该拷进哪个项目」——建一条吧。
-          </div>
+          <div className="empty">{t("presets.empty")}</div>
         )}
         {cfg.presets.map((p, i) => (
           <div key={p.id} className="panel">
@@ -839,15 +846,20 @@ function Presets({
                 <div className="row" style={{ gap: 8, alignItems: "center" }}>
                   <b>{p.name}</b>
                   {p.enabled ? (
-                    <span className="tag t-ok">已启用</span>
+                    <span className="tag t-ok">{t("app.enabled")}</span>
                   ) : (
-                    <span className="tag t-neutral">已停用</span>
+                    <span className="tag t-neutral">{t("app.disabled")}</span>
                   )}
                 </div>
                 <div className="small muted">
-                  匹配 {matchLabel(p.match, cfg)} → 项目「
-                  {cfg.projects.find((x) => x.id === p.project_id)?.name ?? "当前项目"}」 · 校验{" "}
-                  {p.verify ? "开" : "关"} · {p.algorithm}
+                  {t("presets.summary", {
+                    match: matchLabel(p.match, cfg),
+                    project:
+                      cfg.projects.find((x) => x.id === p.project_id)?.name ??
+                      t("presets.currentProject"),
+                    verify: p.verify ? t("app.on") : t("app.off"),
+                    algo: p.algorithm,
+                  })}
                 </div>
               </div>
               <button className="btn sm" disabled={i === 0} onClick={() => api.movePreset(p.id, true).then(reload)}>
@@ -861,17 +873,13 @@ function Presets({
                 ↓
               </button>
               <button className="btn sm" onClick={() => save({ ...p, enabled: !p.enabled })}>
-                {p.enabled ? "停用" : "启用"}
+                {p.enabled ? t("app.disable") : t("app.enable")}
               </button>
-              <button className="btn sm" onClick={() => setEditing(p)}>
-                编辑
-              </button>
+              <button className="btn sm" onClick={() => setEditing(p)}>{t("app.edit")}</button>
               <button
                 className="btn sm danger"
                 onClick={() => api.deletePreset(p.id).then(reload).catch((e) => onError(String(e)))}
-              >
-                删除
-              </button>
+              >{t("app.delete")}</button>
             </div>
           </div>
         ))}
@@ -889,10 +897,12 @@ function Presets({
 }
 
 function matchLabel(m: Preset["match"], cfg: Config): string {
-  if (m.kind === "any_classified_source") return "任何已分类的源设备";
-  if (m.kind === "kind") return `全部${KIND_LABEL[m.device_kind]}`;
+  if (m.kind === "any_classified_source") return t("sink.scopeAny");
+  if (m.kind === "kind") return t("presets.matchAllKind", { kind: KIND_LABEL[m.device_kind] });
   const d = cfg.devices.find((x) => x.id === m.device_id);
-  return `指定设备「${d?.custom_name ?? m.device_id.slice(0, 20)}」`;
+  return t("presets.matchNamedDevice", {
+    name: d?.custom_name ?? m.device_id.slice(0, 20),
+  });
 }
 
 function PresetEditor({
@@ -913,16 +923,16 @@ function PresetEditor({
     <div className="viewer" onClick={onCancel}>
       <div className="sheet narrow" onClick={(e) => e.stopPropagation()}>
         <header>
-          <span className="t">预设任务</span>
+          <span className="t">{t("presets.title")}</span>
         </header>
         <div className="in col">
           <div className="field">
-            <label>名称</label>
+            <label>{t("presets.nameLabel")}</label>
             <input value={p.name} onChange={(e) => setP({ ...p, name: e.target.value })} />
           </div>
 
           <div className="field">
-            <label>匹配什么设备（越窄越优先）</label>
+            <label>{t("presets.matchLabel")}</label>
             <select
               value={matchKind}
               onChange={(e) => {
@@ -936,39 +946,39 @@ function PresetEditor({
                   });
               }}
             >
-              <option value="device">指定设备（最窄）</option>
-              <option value="kind">某一类设备</option>
-              <option value="any_classified_source">任何已分类的源设备（最宽）</option>
+              <option value="device">{t("presets.matchDevice")}</option>
+              <option value="kind">{t("presets.matchKind")}</option>
+              <option value="any_classified_source">{t("presets.matchAny")}</option>
             </select>
           </div>
 
           {p.match.kind === "kind" && (
             <div className="field">
-              <label>哪一类</label>
+              <label>{t("presets.whichKind")}</label>
               <select
                 value={p.match.device_kind}
                 onChange={(e) =>
                   setP({ ...p, match: { kind: "kind", device_kind: e.target.value as DeviceKind } })
                 }
               >
-                <option value="camera">摄影卡</option>
-                <option value="recorder">录音卡</option>
-                <option value="storage">素材盘</option>
+                <option value="camera">{t("kind.camera")}</option>
+                <option value="recorder">{t("kind.recorder")}</option>
+                <option value="storage">{t("kind.storage")}</option>
               </select>
             </div>
           )}
 
           {p.match.kind === "device" && (
             <div className="field">
-              <label>哪一台（来自设备记忆库）</label>
+              <label>{t("presets.whichDevice")}</label>
               <select
                 value={p.match.device_id}
                 onChange={(e) => setP({ ...p, match: { kind: "device", device_id: e.target.value } })}
               >
-                {cfg.devices.length === 0 && <option value="">还没有记住任何设备</option>}
+                {cfg.devices.length === 0 && <option value="">{t("presets.noRemembered")}</option>}
                 {cfg.devices.map((d) => (
                   <option key={d.id} value={d.id}>
-                    {d.custom_name}（{KIND_LABEL[d.kind]}）
+                    {t("devices.nameWithKind", { name: d.custom_name, kind: KIND_LABEL[d.kind] })}
                   </option>
                 ))}
               </select>
@@ -976,12 +986,12 @@ function PresetEditor({
           )}
 
           <div className="field">
-            <label>拷进哪个项目</label>
+            <label>{t("presets.intoProject")}</label>
             <select
               value={p.project_id ?? ""}
               onChange={(e) => setP({ ...p, project_id: e.target.value || null })}
             >
-              <option value="">用当前项目</option>
+              <option value="">{t("presets.useCurrent")}</option>
               {cfg.projects.map((x) => (
                 <option key={x.id} value={x.id}>
                   {x.name}
@@ -996,42 +1006,34 @@ function PresetEditor({
                 type="checkbox"
                 checked={p.verify}
                 onChange={(e) => setP({ ...p, verify: e.target.checked })}
-              />
-              读回校验
-            </label>
+              />{t("settings.verifyDefault")}</label>
             <label className="small row" style={{ gap: 5, alignItems: "center" }}>
               <input
                 type="checkbox"
                 checked={p.eject_after}
                 onChange={(e) => setP({ ...p, eject_after: e.target.checked })}
-              />
-              拷完自动弹出
-            </label>
+              />{t("presets.ejectAfter")}</label>
             <div className="field">
-              <label>算法</label>
+              <label>{t("presets.algorithm")}</label>
               <select
                 value={p.algorithm}
                 onChange={(e) => setP({ ...p, algorithm: e.target.value as "xxh64" | "md5" })}
               >
-                <option value="xxh64">XXH64（快，推荐）</option>
-                <option value="md5">MD5（慢，兼容旧流程）</option>
+                <option value="xxh64">{t("presets.xxh64")}</option>
+                <option value="md5">{t("presets.md5")}</option>
               </select>
             </div>
           </div>
 
           {!p.verify && (
-            <div className="banner warn">
-              关掉读回校验后，将无法发现介质写入错误——拷进去的东西坏没坏你不会知道。
-            </div>
+            <div className="banner warn">{t("presets.noVerifyWarn")}</div>
           )}
 
           <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
             <button className="btn" onClick={onCancel}>
-              取消
+              {t("app.cancel")}
             </button>
-            <button className="btn primary" onClick={() => onSave(p)}>
-              保存
-            </button>
+            <button className="btn primary" onClick={() => onSave(p)}>{t("app.save")}</button>
           </div>
         </div>
       </div>
@@ -1088,9 +1090,7 @@ function Devices({
         <button
           className="btn sm danger"
           onClick={() => api.forgetDevice(d.id).then(reload).catch((x) => onError(String(x)))}
-        >
-          删除记忆
-        </button>
+        >{t("devices.forget")}</button>
       </td>
     </tr>
   );
@@ -1098,26 +1098,25 @@ function Devices({
   return (
     <>
       <div className="topbar">
-        <span className="t">设备</span>
-        <span className="muted small">已记住 {cfg.devices.length} 个</span>
+        <span className="t">{t("workbench.devices")}</span>
+        <span className="muted small">{t("devices.countN", { n: cfg.devices.length })}</span>
       </div>
       <div className="body col">
         {cfg.devices.length === 0 && (
-          <div className="empty">记忆库还是空的。插一张卡，稳拷会记住它。</div>
+          <div className="empty">{t("devices.empty")}</div>
         )}
         {active.length > 0 && (
           <div className="panel">
-            <header>
-              已记住的设备<span className="n">{active.length}</span>
+            <header>{t("devices.remembered")}<span className="n">{active.length}</span>
             </header>
             <table>
               <thead>
                 <tr>
-                  <th>名字</th>
-                  <th style={{ width: 110 }}>类型</th>
-                  <th>卷标</th>
-                  <th className="num">容量</th>
-                  <th>最近见到</th>
+                  <th>{t("devices.name")}</th>
+                  <th style={{ width: 110 }}>{t("devices.kind")}</th>
+                  <th>{t("devices.label")}</th>
+                  <th className="num">{t("devices.capacity")}</th>
+                  <th>{t("devices.lastSeen")}</th>
                   <th style={{ width: 100 }} />
                 </tr>
               </thead>
@@ -1127,20 +1126,17 @@ function Devices({
         )}
         {ignored.length > 0 && (
           <div className="panel">
-            <header>
-              已忽略<span className="n">{ignored.length}</span>
+            <header>{t("devices.ignored")}<span className="n">{ignored.length}</span>
             </header>
-            <div className="in small muted">
-              这些设备插上不会有任何提示。「插卡没反应」多半就是因为它在这里。
-            </div>
+            <div className="in small muted">{t("devices.ignoredHint")}</div>
             <table>
               <thead>
                 <tr>
-                  <th>名字</th>
-                  <th style={{ width: 110 }}>类型</th>
-                  <th>卷标</th>
-                  <th className="num">容量</th>
-                  <th>最近见到</th>
+                  <th>{t("devices.name")}</th>
+                  <th style={{ width: 110 }}>{t("devices.kind")}</th>
+                  <th>{t("devices.label")}</th>
+                  <th className="num">{t("devices.capacity")}</th>
+                  <th>{t("devices.lastSeen")}</th>
                   <th style={{ width: 100 }} />
                 </tr>
               </thead>
@@ -1179,17 +1175,15 @@ function History({
   return (
     <>
       <div className="topbar">
-        <span className="t">台账</span>
-        <span className="muted small">{items.length} 条记录</span>
+        <span className="t">{t("nav.history")}</span>
+        <span className="muted small">{t("history.countN", { n: items.length })}</span>
         <div className="r">
           <label className="small row" style={{ gap: 5, alignItems: "center" }}>
             <input
               type="checkbox"
               checked={onlyFailed}
               onChange={(e) => setOnlyFailed(e.target.checked)}
-            />
-            只看有失败的
-          </label>
+            />{t("history.onlyFailed")}</label>
           <button
             className="btn sm"
             onClick={() => {
@@ -1198,17 +1192,15 @@ function History({
                 setShowAttempts(true);
               });
             }}
-          >
-            格式化留痕
-          </button>
+          >{t("history.formatAttempts")}</button>
           <button
             className="btn sm"
             disabled={busy}
             onClick={async () => {
               // 独立复验：不依赖台账记录，直接挑一份清单来核
               const f = await openDialog({
-                title: "选择要复验的清单",
-                filters: [{ name: "稳拷清单", extensions: ["json"] }],
+                title: t("history.pickManifest"),
+                filters: [{ name: t("history.manifestFilter"), extensions: ["json"] }],
               });
               if (typeof f !== "string") return;
               setBusy(true);
@@ -1220,108 +1212,102 @@ function History({
                 setBusy(false);
               }
             }}
-          >
-            复验某份清单…
-          </button>
-          <button className="btn sm" onClick={load}>
-            刷新
-          </button>
+          >{t("history.auditManifest")}</button>
+          <button className="btn sm" onClick={load}>{t("app.refresh")}</button>
         </div>
       </div>
       <div className="body col">
-        {items.length === 0 && <div className="empty">还没有拷卡记录。</div>}
+        {items.length === 0 && <div className="empty">{t("history.empty")}</div>}
         {items.length > 0 && (
           <div className="panel">
             <table>
               <thead>
                 <tr>
-                  <th>时间</th>
-                  <th>项目</th>
-                  <th>来源</th>
-                  <th className="num">文件</th>
-                  <th className="num">大小</th>
-                  <th className="num">耗时</th>
-                  <th>结果</th>
+                  <th>{t("history.time")}</th>
+                  <th>{t("adhoc.project")}</th>
+                  <th>{t("history.source")}</th>
+                  <th className="num">{t("history.files")}</th>
+                  <th className="num">{t("history.size")}</th>
+                  <th className="num">{t("history.elapsed")}</th>
+                  <th>{t("history.result")}</th>
                   <th style={{ width: 230 }} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((t) => (
-                  <tr key={t.id}>
-                    <td className="mono">{t.finished_at.replace("T", " ").slice(0, 19)}</td>
-                    <td>{t.project}</td>
-                    <td>{t.source_name}</td>
+                {items.map((rec) => (
+                  <tr key={rec.id}>
+                    <td className="mono">{rec.finished_at.replace("T", " ").slice(0, 19)}</td>
+                    <td>{rec.project}</td>
+                    <td>{rec.source_name}</td>
                     <td className="num">
-                      {t.copied}
-                      {t.skipped > 0 && <span className="dim">+{t.skipped}跳</span>}
+                      {rec.copied}
+                      {rec.skipped > 0 && (
+                        <span className="dim">
+                          {t("history.skippedSuffix", { n: rec.skipped })}
+                        </span>
+                      )}
                     </td>
-                    <td className="num">{bytes(t.total_bytes)}</td>
-                    <td className="num">{duration(t.elapsed_secs)}</td>
+                    <td className="num">{bytes(rec.total_bytes)}</td>
+                    <td className="num">{duration(rec.elapsed_secs)}</td>
                     <td>
                       <span
                         className={
-                          t.status === "ok"
+                          rec.status === "ok"
                             ? "tag t-ok"
-                            : t.status === "cancelled"
+                            : rec.status === "cancelled"
                               ? "tag t-warn"
                               : "tag t-bad"
                         }
                       >
-                        {STATUS_LABEL[t.status]}
+                        {STATUS_LABEL[rec.status]}
                       </span>
                     </td>
                     <td>
                       <div className="row" style={{ gap: 6 }}>
-                        {t.manifests.length === 0 ? (
-                          <button className="btn sm primary" disabled>
-                            报告
-                          </button>
+                        {rec.manifests.length === 0 ? (
+                          <button className="btn sm primary" disabled>{t("history.report")}</button>
                         ) : (
                           // 多目的地会落多份凭证，每份一个报告——不能只给第一份，
                           // 那等于把另外几个目的地的结论藏起来
-                          t.manifests.map((m, i) => (
+                          rec.manifests.map((m, i) => (
                             <button key={m} className="btn sm primary" onClick={() => onView(m)}>
-                              报告{t.manifests.length > 1 ? ` ${i + 1}` : ""}
+                              {rec.manifests.length > 1
+                                ? t("history.reportN", { n: i + 1 })
+                                : t("history.report")}
                             </button>
                           ))
                         )}
                         <button
                           className="btn sm"
-                          disabled={busy || t.manifests.length === 0}
+                          disabled={busy || rec.manifests.length === 0}
                           onClick={async () => {
                             setBusy(true);
                             try {
-                              setAudit(await api.runAudit(t.manifests[0]));
+                              setAudit(await api.runAudit(rec.manifests[0]));
                             } catch (e) {
                               onError(String(e));
                             } finally {
                               setBusy(false);
                             }
                           }}
-                        >
-                          复验
-                        </button>
+                        >{t("history.audit")}</button>
                         <button
                           className="btn sm"
-                          disabled={t.manifests.length === 0}
+                          disabled={rec.manifests.length === 0}
                           onClick={() =>
-                            api.revealLandingDir(t.manifests[0]).catch((e) => onError(String(e)))
+                            api.revealLandingDir(rec.manifests[0]).catch((e) => onError(String(e)))
                           }
-                        >
-                          打开目录
-                        </button>
+                        >{t("history.openFolder")}</button>
                         <button
                           className="btn sm"
                           onClick={async () => {
                             try {
-                              setDetail({ task: t, files: await api.taskFiles(t.id) });
+                              setDetail({ task: rec, files: await api.taskFiles(rec.id) });
                             } catch (e) {
                               onError(String(e));
                             }
                           }}
-                        >
-                          明细
-                        </button>
+                        >{t("history.detail")}</button>
                       </div>
                     </td>
                   </tr>
@@ -1331,31 +1317,34 @@ function History({
           </div>
         )}
 
-        {busy && <div className="banner warn">正在复验（无缓冲读回，大文件会慢一些）…</div>}
+        {busy && <div className="banner warn">{t("history.auditing")}</div>}
         {audit && <AuditPanel r={audit} onClose={() => setAudit(null)} />}
 
         {detail && (
           <div className="panel">
             <header>
-              文件明细 · {detail.task.project} / {detail.task.source_name}
-              <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => setDetail(null)}>
-                关闭
-              </button>
+              {t("history.fileDetailOf", {
+                project: detail.task.project,
+                source: detail.task.source_name,
+              })}
+              <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => setDetail(null)}>{t("app.close")}</button>
             </header>
             {detail.files.some((f) => f.status === "failed") && (
               <div className="in">
                 <div className="banner bad">
-                  有 {detail.files.filter((f) => f.status === "failed").length} 个文件失败
+                  {t("history.nFailed", {
+                    n: detail.files.filter((f) => f.status === "failed").length,
+                  })}
                 </div>
               </div>
             )}
             <table>
               <thead>
                 <tr>
-                  <th>文件</th>
-                  <th className="num">大小</th>
-                  <th>状态</th>
-                  <th>原因</th>
+                  <th>{t("history.files")}</th>
+                  <th className="num">{t("history.size")}</th>
+                  <th>{t("history.status")}</th>
+                  <th>{t("history.reason")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1375,7 +1364,7 @@ function History({
                                 : "tag t-ok"
                           }
                         >
-                          {f.status === "failed" ? "失败" : f.status === "skipped" ? "跳过" : "已拷"}
+                          {f.status === "failed" ? t("app.failed") : f.status === "skipped" ? t("app.skippedTag") : t("app.copiedTag")}
                         </span>
                       </td>
                       <td className="muted">{f.reason ?? ""}</td>
@@ -1388,31 +1377,26 @@ function History({
 
         {showAttempts && (
           <div className="panel">
-            <header>
-              格式化留痕<span className="n">{attempts.length}</span>
+            <header>{t("history.formatAttempts")}<span className="n">{attempts.length}</span>
               <button
                 className="btn sm"
                 style={{ marginLeft: 8 }}
                 onClick={() => setShowAttempts(false)}
-              >
-                关闭
-              </button>
+              >{t("app.close")}</button>
             </header>
-            <div className="in small muted">
-              格式化是唯一销毁数据的操作，无论成功、失败、被拒还是被取消都留痕。
-            </div>
+            <div className="in small muted">{t("history.formatTrace")}</div>
             {attempts.length === 0 ? (
-              <div className="empty">还没有过格式化尝试。</div>
+              <div className="empty">{t("history.noFormatAttempts")}</div>
             ) : (
               <table>
                 <thead>
                   <tr>
-                    <th>时间</th>
-                    <th>设备</th>
-                    <th>触发</th>
-                    <th>检查</th>
-                    <th>结果</th>
-                    <th>原因</th>
+                    <th>{t("history.time")}</th>
+                    <th>{t("workbench.devices")}</th>
+                    <th>{t("history.trigger")}</th>
+                    <th>{t("history.checks")}</th>
+                    <th>{t("history.result")}</th>
+                    <th>{t("history.reason")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1425,12 +1409,12 @@ function History({
                       <td>
                         <span className={a.result === "ok" ? "tag t-ok" : "tag t-bad"}>
                           {a.result === "ok"
-                            ? "已格式化"
+                            ? t("history.formatted")
                             : a.result === "rejected"
-                              ? "被拒绝"
+                              ? t("history.rejected")
                               : a.result === "cancelled"
-                                ? "已取消"
-                                : "失败"}
+                                ? t("history.cancelledTag")
+                                : t("app.failed")}
                         </span>
                       </td>
                       <td className="muted">{a.reason ?? ""}</td>
@@ -1482,22 +1466,22 @@ function SettingsPage({
   return (
     <>
       <div className="topbar">
-        <span className="t">设置</span>
+        <span className="t">{t("nav.settings")}</span>
         <span className="muted small path">{path}</span>
       </div>
       <div className="body col">
         <div className="panel">
-          <header>项目与目的地</header>
+          <header>{t("settings.projects")}</header>
           <div className="in col">
             {cfg.projects.length === 0 && (
-              <div className="empty">还没有项目。建一个，插卡才知道往哪拷。</div>
+              <div className="empty">{t("settings.noProject")}</div>
             )}
             {cfg.projects.map((p) => (
               <div key={p.id} className="row" style={{ alignItems: "center", gap: 8 }}>
                 <div className="grow">
                   <div className="row" style={{ gap: 8, alignItems: "center" }}>
                     <b>{p.name}</b>
-                    {cfg.current_project === p.id && <span className="tag t-ok">当前项目</span>}
+                    {cfg.current_project === p.id && <span className="tag t-ok">{t("settings.currentProjectTag")}</span>}
                   </div>
                   {p.destinations.map((d) => (
                     <div key={d.id} className="path">
@@ -1509,21 +1493,15 @@ function SettingsPage({
                   <button
                     className="btn sm"
                     onClick={() => api.setCurrentProject(p.id).then(reload)}
-                  >
-                    设为当前
-                  </button>
+                  >{t("settings.setCurrent")}</button>
                 )}
-                <button className="btn sm" onClick={() => setEditing(p)}>
-                  编辑
-                </button>
+                <button className="btn sm" onClick={() => setEditing(p)}>{t("app.edit")}</button>
                 <button
                   className="btn sm danger"
                   onClick={() =>
                     api.deleteProject(p.id).then(reload).catch((e) => onError(String(e)))
                   }
-                >
-                  删除
-                </button>
+                >{t("app.delete")}</button>
               </div>
             ))}
             <div>
@@ -1532,14 +1510,12 @@ function SettingsPage({
                 onClick={() =>
                   setEditing({
                     id: "",
-                    name: "新项目",
+                    name: t("settings.newProjectName"),
                     created_at: new Date().toISOString(),
                     destinations: [],
                   })
                 }
-              >
-                新建项目
-              </button>
+              >{t("settings.newProject")}</button>
             </div>
           </div>
         </div>
@@ -1553,7 +1529,7 @@ function SettingsPage({
               style={{ maxWidth: 220 }}
             >
               <option value="auto">{t("settings.languageAuto")}</option>
-              <option value="zh">中文</option>
+              <option value="zh">{t("lang.zh")}</option>
               <option value="en">English</option>
             </select>
           </div>
@@ -1563,24 +1539,22 @@ function SettingsPage({
           <header>{t("settings.copy")}</header>
           <div className="in col">
             <Toggle
-              label="读回校验"
-              hint="从目的地无缓冲读回重算哈希再比对。关掉就发现不了介质写入错误"
+              label={t("settings.verifyDefault")}
+              hint={t("settings.verifyHint")}
               checked={s.verify_default}
               onChange={(v) => save({ ...s, verify_default: v })}
             />
             {!s.verify_default && (
-              <div className="banner warn">
-                校验已关闭——拷进去的东西坏没坏，你不会知道。
-              </div>
+              <div className="banner warn">{t("settings.verifyOffWarn")}</div>
             )}
             <Toggle
-              label="拷完自动安全弹出"
-              hint="全部校验通过后自动弹出源卡"
+              label={t("settings.ejectAfter")}
+              hint={t("settings.ejectAfterHint")}
               checked={s.eject_after}
               onChange={(v) => save({ ...s, eject_after: v })}
             />
             <div className="field" style={{ maxWidth: 220 }}>
-              <label>校验失败后的重拷次数</label>
+              <label>{t("settings.retries")}</label>
               <input
                 type="number"
                 min={0}
@@ -1593,22 +1567,20 @@ function SettingsPage({
         </div>
 
         <div className="panel">
-          <header>插卡</header>
+          <header>{t("settings.onInsert")}</header>
           <div className="in col">
             <Toggle
-              label="自动预填项目与目的地"
-              hint="关掉后插卡只提示，项目与目的地需要你现选"
+              label={t("settings.autoPrefill")}
+              hint={t("settings.autoPrefillHint")}
               checked={s.auto_prefill}
               onChange={(v) => save({ ...s, auto_prefill: v })}
             />
-            <div className="small muted">
-              当前档位：
-              <b>
+            <div className="small muted">{t("settings.mode")}<b>
                 {s.auto_prefill && s.skip_confirmation
-                  ? "无人值守档（插卡直接开跑）"
+                  ? t("settings.modeUnattended")
                   : s.auto_prefill
-                    ? "确认档（预填好，等你点一次）"
-                    : "手动档（每次现选）"}
+                    ? t("settings.modeConfirm")
+                    : t("settings.modeManual")}
               </b>
             </div>
           </div>
@@ -1618,15 +1590,15 @@ function SettingsPage({
 
         <DangerZone>
           <Toggle
-            label="跳过插卡确认"
-            hint="插入已分类的设备后直接开始拷贝，不再询问。未分类的新设备仍会先要求指认——这条绕不过去"
+            label={t("danger.skipConfirm")}
+            hint={t("danger.skipConfirmHint")}
             checked={s.skip_confirmation}
             danger
             onChange={(v) => (v ? setConfirmDanger("skip") : save({ ...s, skip_confirmation: false }))}
           />
           <Toggle
-            label="拷贝完成后格式化源卡"
-            hint="仅当全部目的地完成且全部文件校验通过时才会触发；触发时仍会弹倒计时，可取消"
+            label={t("danger.formatAfter")}
+            hint={t("danger.formatAfterHint")}
             checked={s.format_after_copy}
             danger
             onChange={(v) =>
@@ -1634,7 +1606,7 @@ function SettingsPage({
             }
           />
           <div className="field" style={{ maxWidth: 260 }}>
-            <label>不可逆操作的确认倒计时（秒，最小 10）</label>
+            <label>{t("danger.countdown")}</label>
             <input
               type="number"
               min={10}
@@ -1644,9 +1616,7 @@ function SettingsPage({
             />
           </div>
           <div className="row">
-            <button className="btn danger sm" onClick={() => setConfirmDanger("clear")}>
-              清空全部台账数据
-            </button>
+            <button className="btn danger sm" onClick={() => setConfirmDanger("clear")}>{t("danger.clearHistory")}</button>
           </div>
         </DangerZone>
       </div>
@@ -1665,9 +1635,9 @@ function SettingsPage({
 
       {confirmDanger === "skip" && (
         <CountdownConfirm
-          title="⚠ 开启「跳过插卡确认」"
+          title={t("danger.confirmSkipTitle")}
           seconds={s.countdown_secs}
-          confirmText="我明白，开启"
+          confirmText={t("danger.iUnderstand")}
           onCancel={() => setConfirmDanger(null)}
           onConfirm={() => {
             save({ ...s, skip_confirmation: true });
@@ -1675,11 +1645,9 @@ function SettingsPage({
           }}
           body={
             <div className="col" style={{ gap: 8 }}>
-              <div>开启后，插入**已分类**的设备会直接开始拷贝，不再弹确认。</div>
-              <div className="small muted">
-                未分类的新设备仍然会先要求你指认类型——那条绕不过去，对不知道是什么的设备自动写入风险不可接受。
-              </div>
-              <div className="banner warn">工位顶栏会常驻提示，免得你忘了自己开过。</div>
+              <div>{t("danger.skipBody1")}</div>
+              <div className="small muted">{t("danger.skipBody2")}</div>
+              <div className="banner warn">{t("danger.stripReminder")}</div>
             </div>
           }
         />
@@ -1687,9 +1655,9 @@ function SettingsPage({
 
       {confirmDanger === "format" && (
         <CountdownConfirm
-          title="⚠ 开启「拷完自动格式化源卡」"
+          title={t("danger.confirmFormatTitle")}
           seconds={s.countdown_secs}
-          confirmText="我明白，开启"
+          confirmText={t("danger.iUnderstand")}
           onCancel={() => setConfirmDanger(null)}
           onConfirm={() => {
             save({ ...s, format_after_copy: true });
@@ -1697,12 +1665,11 @@ function SettingsPage({
           }}
           body={
             <div className="col" style={{ gap: 8 }}>
-              <div>开启后，当一次任务的**全部目的地都完成且全部文件校验通过**时，会提议格式化源卡。</div>
+              <div>{t("danger.formatBody1")}</div>
               <div className="small muted">
-                任一目的地失败、关闭了校验、存在失败文件、任务被取消——任何一种情况都不会触发。
-                触发时仍会弹出倒计时，期间可以取消。
+                {t("danger.formatBody2")} {t("danger.formatBody3")}
               </div>
-              <div className="banner bad">格式化不可撤销。</div>
+              <div className="banner bad">{t("danger.formatIrreversible")}</div>
             </div>
           }
         />
@@ -1710,9 +1677,9 @@ function SettingsPage({
 
       {confirmDanger === "clear" && (
         <CountdownConfirm
-          title="⚠ 清空全部台账数据"
+          title={t("danger.confirmClearTitle")}
           seconds={s.countdown_secs}
-          confirmText="清空"
+          confirmText={t("danger.clear")}
           onCancel={() => setConfirmDanger(null)}
           onConfirm={async () => {
             try {
@@ -1724,10 +1691,8 @@ function SettingsPage({
           }}
           body={
             <div className="col" style={{ gap: 8 }}>
-              <div>只清空**本机**的任务历史与格式化留痕。</div>
-              <div className="banner ok">
-                目的地上的素材与凭证不受影响；依据凭证的复验仍然可用。
-              </div>
+              <div>{t("danger.clearBody")}</div>
+              <div className="banner ok">{t("danger.clearSafe")}</div>
             </div>
           }
         />
@@ -1749,37 +1714,35 @@ function About({ path, onError }: { path: string; onError: (e: string) => void }
 
   return (
     <div className="panel">
-      <header>
-        关于
-        <span className="n">{info?.portable ? "便携版" : "安装版"}</span>
+      <header>{t("settings.about")}<span className="n">{info?.portable ? t("settings.portable") : t("settings.installed")}</span>
       </header>
       <div className="in col small">
         <table className="kv">
           <tbody>
             <tr>
-              <th>版本</th>
+              <th>{t("about.version")}</th>
               <td className="mono">{info?.version ?? "…"}</td>
             </tr>
             <tr>
-              <th>构建标识</th>
+              <th>{t("about.commit")}</th>
               <td className="mono">{info?.commit ?? "…"}</td>
             </tr>
             <tr>
-              <th>构建时间</th>
+              <th>{t("about.buildTime")}</th>
               <td className="mono">{info?.build_time ?? "…"}</td>
             </tr>
             <tr>
-              <th>工具链</th>
+              <th>{t("about.toolchain")}</th>
               <td className="mono">
                 {info?.rustc ?? "…"} · Tauri {info?.tauri ?? "…"}
               </td>
             </tr>
             <tr>
-              <th>数据目录</th>
+              <th>{t("about.dataDir")}</th>
               <td className="path">{info?.data_dir ?? "…"}</td>
             </tr>
             <tr>
-              <th>配置文件</th>
+              <th>{t("about.configFile")}</th>
               <td className="path">{path}</td>
             </tr>
           </tbody>
@@ -1800,11 +1763,9 @@ function About({ path, onError }: { path: string; onError: (e: string) => void }
               );
             }}
           >
-            {copied ? "已复制" : "复制构建标识"}
+            {copied ? t("app.copied") : t("about.copyBuildId")}
           </button>
-          <button className="btn sm" onClick={() => api.openConfigFile().catch((e) => onError(String(e)))}>
-            打开配置文件
-          </button>
+          <button className="btn sm" onClick={() => api.openConfigFile().catch((e) => onError(String(e)))}>{t("about.openConfig")}</button>
           <button
             className="btn sm primary"
             onClick={() => api.openGuide().catch((e) => onError(String(e)))}
@@ -1821,9 +1782,7 @@ function About({ path, onError }: { path: string; onError: (e: string) => void }
                 onError(String(e));
               }
             }}
-          >
-            开源许可
-          </button>
+          >{t("about.licenses")}</button>
         </div>
 
         <div className="banner warn">
@@ -1836,14 +1795,12 @@ function About({ path, onError }: { path: string; onError: (e: string) => void }
           <div className="viewer" onClick={() => setShowLic(false)}>
             <div className="sheet" onClick={(e) => e.stopPropagation()}>
               <header>
-                <span className="t">开源许可</span>
+                <span className="t">{t("about.licenses")}</span>
                 <span className="muted small">
-                  稳拷本体 {lic.self.license} · 第三方依赖 {lic.count} 个
+                  {t("about.licenceSummary", { self: lic.self.license, n: lic.count })}
                 </span>
                 <div className="r">
-                  <button className="btn sm" onClick={() => setShowLic(false)}>
-                    关闭
-                  </button>
+                  <button className="btn sm" onClick={() => setShowLic(false)}>{t("app.close")}</button>
                 </div>
               </header>
               <div className="in" style={{ overflow: "auto" }}>
@@ -1851,10 +1808,10 @@ function About({ path, onError }: { path: string; onError: (e: string) => void }
                 <table>
                   <thead>
                     <tr>
-                      <th>包</th>
-                      <th style={{ width: 90 }}>版本</th>
-                      <th style={{ width: 70 }}>生态</th>
-                      <th>许可</th>
+                      <th>{t("about.package")}</th>
+                      <th style={{ width: 90 }}>{t("about.version")}</th>
+                      <th style={{ width: 70 }}>{t("about.ecosystem")}</th>
+                      <th>{t("about.licence")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1927,9 +1884,9 @@ function ProjectEditor({
   useEffect(() => {
     dests.forEach((d, i) => {
       api
-        .previewPath(d.root, d.template, name || "项目名", "设备名")
+        .previewPath(d.root, d.template, name || t("settings.projectName"), t("preview.deviceName"))
         .then((p) => setPreviews((prev) => ({ ...prev, [i]: p })))
-        .catch((e) => setPreviews((prev) => ({ ...prev, [i]: `模板不合法：${e}` })));
+        .catch((e) => setPreviews((prev) => ({ ...prev, [i]: t("settings.templateInvalid", { e: String(e) }) })));
     });
   }, [dests, name]);
 
@@ -1937,16 +1894,16 @@ function ProjectEditor({
     <div className="viewer" onClick={onCancel}>
       <div className="sheet" onClick={(e) => e.stopPropagation()} style={{ height: "auto" }}>
         <header>
-          <span className="t">项目</span>
+          <span className="t">{t("adhoc.project")}</span>
         </header>
         <div className="in col" style={{ overflow: "auto" }}>
           <div className="field">
-            <label>项目名</label>
+            <label>{t("settings.projectName")}</label>
             <input value={name} onChange={(e) => setName(e.target.value)} />
           </div>
 
           <div className="field">
-            <label>目的地（1–4 个，一次读源同时写入）</label>
+            <label>{t("settings.destinations")}</label>
             {dests.map((d, i) => (
               <div key={i} className="panel" style={{ marginBottom: 8 }}>
                 <div className="in col" style={{ gap: 6 }}>
@@ -1962,22 +1919,18 @@ function ProjectEditor({
                     <button
                       className="btn sm"
                       onClick={async () => {
-                        const p = await openDialog({ directory: true, title: "选择目的地" });
+                        const p = await openDialog({ directory: true, title: t("settings.pickDestination") });
                         if (typeof p === "string")
                           setDests(dests.map((x, j) => (j === i ? { ...x, root: p } : x)));
                       }}
-                    >
-                      选择…
-                    </button>
+                    >{t("app.choose")}</button>
                     <button
                       className="btn sm danger"
                       onClick={() => setDests(dests.filter((_, j) => j !== i))}
-                    >
-                      移除
-                    </button>
+                    >{t("app.remove")}</button>
                   </div>
                   <div className="row" style={{ gap: 6, alignItems: "center" }}>
-                    <span className="small muted">路径模板</span>
+                    <span className="small muted">{t("settings.pathTemplate")}</span>
                     <input
                       className="grow"
                       value={d.template}
@@ -2005,7 +1958,7 @@ function ProjectEditor({
                       )
                     )}
                   </div>
-                  <div className="path">预览：{previews[i] ?? "…"}</div>
+                  <div className="path">{t("settings.previewIs", { p: previews[i] ?? "…" })}</div>
                 </div>
               </div>
             ))}
@@ -2013,21 +1966,19 @@ function ProjectEditor({
               className="btn sm"
               disabled={dests.length >= 4}
               onClick={async () => {
-                const p = await openDialog({ directory: true, title: "添加目的地" });
+                const p = await openDialog({ directory: true, title: t("settings.addDestination") });
                 if (typeof p === "string")
                   setDests([
                     ...dests,
                     { id: null as unknown as string, root: p, template: "{项目}/{日期}/{设备}", enabled: true },
                   ]);
               }}
-            >
-              添加目的地…
-            </button>
+            >{t("adhoc.addDest")}</button>
           </div>
 
           <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
             <button className="btn" onClick={onCancel}>
-              取消
+              {t("app.cancel")}
             </button>
             <button
               className="btn primary"
@@ -2048,9 +1999,7 @@ function ProjectEditor({
                   onError(String(e));
                 }
               }}
-            >
-              保存
-            </button>
+            >{t("app.save")}</button>
           </div>
         </div>
       </div>

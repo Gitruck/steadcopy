@@ -398,7 +398,7 @@ impl Emitter {
                         last_stage = Some(s);
                         end_line(&mut line_pending);
                         last_pct = -1.0;
-                        eprintln!("[{}]", s.label());
+                        eprintln!("[{}]", s.label(lang()));
                     }
                 }
                 StageEvent::Progress {

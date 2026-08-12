@@ -4,6 +4,7 @@
 
 A Windows card-offload (DIT) tool for creators and small teams. Open source, MIT, **free forever including commercial use**.
 
+> 📖 **[Getting started guide](https://hocassian.feishu.cn/docx/BAALdIhzvoKkPLxlr8icZ4Nwn6d)** — written for someone who has never used an offload tool (Chinese; Feishu translates in place)
 > 中文版：[README.md](README.md)
 
 ---
@@ -81,7 +82,7 @@ Every command supports `--json` (pure JSON on stdout, logs on stderr) and `--lan
 
 Chinese and English. Follows the system language by default; switchable under Settings → Language, effective immediately.
 
-> **Honest note about the current state:** the interface shell, the insert-and-run flow, and the orchestration conclusions are fully bilingual. A long tail is still Chinese-only — the report HTML, most CLI output, the safety-check details, and some error descriptions. Those fall back to **Chinese, never to blank**: the translation tables are exhaustive `match` arms, so what's missing is wording, not branches. See `openspec/changes/add-steadcopy-i18n/tasks.md` §6.
+> **Honest note about the current state:** the interface shell, the insert-and-run flow, and the orchestration conclusions are fully bilingual. A long tail is still Chinese-only — the report HTML, most CLI output, the safety-check details, and some error descriptions. Those fall back to **Chinese, never to blank**: the translation tables are exhaustive `match` arms, so what's missing is wording, not branches. The remaining items are tracked item by item in the i18n change inside the private openspec repo.
 
 ## Build from source
 
@@ -109,7 +110,7 @@ Cross-layer command and event contract: [`docs/facade-contract.md`](docs/facade-
 
 ## How this repo works
 
-Three disciplines, defined in [`openspec/README.md`](openspec/README.md):
+Three disciplines. (`openspec/` is a submodule pointing at a private repo; readers without access won't have it. The gist of the three disciplines is below.)
 
 - **SDD** — OpenSpec. No propose→apply in one shot; human review is a gate that cannot be skipped
 - **TDD** — spec-anchored, Detroit style. Every spec scenario has a same-named test; no mocked filesystem, real temp directories; adversarial tests are first-class

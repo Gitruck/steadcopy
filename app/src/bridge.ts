@@ -241,6 +241,8 @@ export type SinkSuggestion = {
 export type SinkScope = "device" | "kind" | "any";
 
 export type Progress = {
+  /** 稳定的机读代码。**判定用它**，不要拿 `stage` 比对——那是本地化文案 */
+  stage_code: string;
   stage: string;
   percent: number;
   current: string | null;

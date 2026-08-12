@@ -22,8 +22,8 @@ Get-FileHash .\稳拷_0.1.0_x64-setup.exe -Algorithm SHA256
 ## 本次发布的校验码
 
 ```
-d49dc5ea301cc7dfc904988b86f4bd15bd7975be921268489975f88a426961d1  稳拷_0.1.0_x64-setup.exe
-2a3c446a13fab5cd3c70d7636eebbb022eb483dc187dcf6afcbf5c742bf853ab  steadcopy-0.1.0-portable.zip
+52b4565f3d57d98ad5c57277613d023c8ef377a634eb1e5ce842d637c9355724  稳拷_0.1.0_x64-setup.exe
+a332f82af73a561ecd4dfcb93bd06f2f1bd3874bb8f8108e641094adfcfce941  steadcopy-0.1.0-portable.zip
 ```
 
 以 `release/SHA256SUMS.txt` 为准，它由 `scripts/build-release.py` 在打包的同一次运行里生成，

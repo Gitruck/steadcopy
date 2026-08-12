@@ -206,6 +206,9 @@ fn plan_dests(plan: &TaskPlan) -> Vec<PlanDestView> {
 
 #[derive(Serialize, Clone)]
 struct ProgressPayload {
+    /// 稳定的机读代码。**界面用它做判定**——拿本地化文案比对，换语言就静默失效
+    stage_code: String,
+    /// 给人看的名字，只用于呈现
     stage: String,
     percent: f64,
     current: Option<String>,
@@ -1014,13 +1017,15 @@ fn execute_run(app: &AppHandle, device_id: &str) -> Result<RunView, String> {
         let t0 = std::time::Instant::now();
         let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
         let mut last_done: u64 = 0;
+        let lang = lang();
 
         let report = run_task(&spec, &plan, io.as_ref(), &clock, &cancel, &mut |e| match e {
             StageEvent::Stage(s) => {
                 let _ = handle.emit(
                     "task-stage",
                     ProgressPayload {
-                        stage: s.label().to_string(),
+                        stage_code: s.code().to_string(),
+                        stage: s.label(lang).to_string(),
                         percent: 0.0,
                         current: None,
                         bytes_per_sec: None,
@@ -1053,7 +1058,8 @@ fn execute_run(app: &AppHandle, device_id: &str) -> Result<RunView, String> {
                 let _ = handle.emit(
                     "task-progress",
                     ProgressPayload {
-                        stage: stage.label().to_string(),
+                        stage_code: stage.code().to_string(),
+                        stage: stage.label(lang).to_string(),
                         percent: steadcopy_core::task::stage::percent(done, total),
                         current,
                         bytes_per_sec: bps,

@@ -73,27 +73,27 @@ export function CountdownConfirm({
           {body}
           {requireTyped && (
             <div className="field">
-              <label>请输入「{requireTyped}」以确认</label>
+              <label>{t("confirm.typeToConfirm", { phrase: requireTyped })}</label>
               <input
                 value={typed}
                 autoFocus
                 onChange={(e) => setTyped(e.target.value)}
                 placeholder={requireTyped}
               />
-              {typed && !typedOk && <span className="small danger-text">还对不上</span>}
+              {typed && !typedOk && <span className="small danger-text">{t("confirm.notMatching")}</span>}
             </div>
           )}
           <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
             <button className="btn" onClick={onCancel}>
-              取消
+              {t("app.cancel")}
             </button>
             <button className="btn danger" disabled={!ready} onClick={onConfirm}>
-              {left > 0 ? `${confirmText}（${left}）` : confirmText}
+              {left > 0 ? t("confirm.withCountdown", { text: confirmText, n: left }) : confirmText}
             </button>
           </div>
           {left > 0 && (
             <div className="small dim" style={{ textAlign: "right" }}>
-              冷静一下——{left} 秒后才能点
+              {t("confirm.coolDown", { n: left })}
             </div>
           )}
         </div>
@@ -110,12 +110,15 @@ export function DestinationList({ dests }: { dests: PlanDest[] }) {
         <div key={d.landing_dir} className="small">
           <div className="path">{d.landing_dir}</div>
           <span className="muted">
-            需要 {bytes(d.required_bytes)} · 可用{" "}
-            {d.available_bytes === null ? "未知" : bytes(d.available_bytes)}{" "}
+            {t("dest.needAvail", {
+              need: bytes(d.required_bytes),
+              avail:
+                d.available_bytes === null ? t("app.unknown") : bytes(d.available_bytes),
+            })}{" "}
           </span>
-          {d.sufficient === true && <span className="tag t-ok">空间充足</span>}
-          {d.sufficient === false && <span className="tag t-bad">空间不足</span>}
-          {d.sufficient === null && <span className="tag t-warn">空间无法确认</span>}
+          {d.sufficient === true && <span className="tag t-ok">{t("dest.enough")}</span>}
+          {d.sufficient === false && <span className="tag t-bad">{t("dest.notEnough")}</span>}
+          {d.sufficient === null && <span className="tag t-warn">{t("dest.unknownSpace")}</span>}
         </div>
       ))}
     </div>
@@ -134,8 +137,8 @@ export function TwoBars({
 }) {
   return (
     <>
-      <Bar label="拷贝" pct={copy} cls="copy" />
-      {showVerify && <Bar label="校验" pct={verify} cls="verify" />}
+      <Bar label={t("settings.copy")} pct={copy} cls="copy" />
+      {showVerify && <Bar label={t("progress.verify")} pct={verify} cls="verify" />}
     </>
   );
 }
@@ -158,45 +161,42 @@ function Bar({ label, pct, cls }: { label: string; pct: number; cls: string }) {
 export function AuditPanel({ r, onClose }: { r: AuditResult; onClose: () => void }) {
   return (
     <div className="panel">
-      <header>
-        复验结果<span className="n">算法 {r.algorithm}</span>
-        <button className="btn sm" style={{ marginLeft: 8 }} onClick={onClose}>
-          关闭
-        </button>
+      <header>{t("audit.title")}<span className="n">{t("audit.algorithm", { a: r.algorithm })}</span>
+        <button className="btn sm" style={{ marginLeft: 8 }} onClick={onClose}>{t("app.close")}</button>
       </header>
       <div className="in col">
         {r.missing.length === 0 ? (
-          <div className="banner ok">数据完好——清单记录的内容全部找得到</div>
+          <div className="banner ok">{t("audit.intactAll")}</div>
         ) : (
-          <div className="banner bad">有 {r.missing.length} 个文件丢失</div>
+          <div className="banner bad">{t("audit.nMissing", { n: r.missing.length })}</div>
         )}
-        {!r.complete && <div className="banner warn">复验被中断，结果不完整</div>}
+        {!r.complete && <div className="banner warn">{t("audit.incomplete")}</div>}
         {r.unverified_at_copy > 0 && (
           <div className="banner warn">
-            其中 {r.unverified_at_copy} 个条目在拷贝时未做校验，可信度较低
+            {t("audit.nUnverified", { n: r.unverified_at_copy })}
           </div>
         )}
         <div className="row" style={{ gap: 16 }}>
           <span>
-            <span className="tag t-ok">一致</span> <b className="mono">{r.intact.length}</b>
+            <span className="tag t-ok">{t("audit.intact")}</span> <b className="mono">{r.intact.length}</b>
           </span>
           <span>
-            <span className="tag t-warn">已移动</span> <b className="mono">{r.moved.length}</b>
+            <span className="tag t-warn">{t("audit.moved")}</span> <b className="mono">{r.moved.length}</b>
           </span>
           <span>
-            <span className="tag t-bad">丢失</span> <b className="mono">{r.missing.length}</b>
+            <span className="tag t-bad">{t("audit.missing")}</span> <b className="mono">{r.missing.length}</b>
           </span>
           <span>
-            <span className="tag t-warn">新增</span> <b className="mono">{r.added.length}</b>
+            <span className="tag t-warn">{t("audit.added")}</span> <b className="mono">{r.added.length}</b>
           </span>
         </div>
         {r.missing.length > 0 && (
           <table>
             <thead>
               <tr>
-                <th>丢失的文件</th>
-                <th className="num">大小</th>
-                <th>期望校验值</th>
+                <th>{t("audit.missingFiles")}</th>
+                <th className="num">{t("history.size")}</th>
+                <th>{t("audit.expectedHash")}</th>
               </tr>
             </thead>
             <tbody>
@@ -214,8 +214,8 @@ export function AuditPanel({ r, onClose }: { r: AuditResult; onClose: () => void
           <table>
             <thead>
               <tr>
-                <th>已移动</th>
-                <th>现在的位置</th>
+                <th>{t("audit.moved")}</th>
+                <th>{t("audit.nowAt")}</th>
               </tr>
             </thead>
             <tbody>
@@ -230,7 +230,7 @@ export function AuditPanel({ r, onClose }: { r: AuditResult; onClose: () => void
         )}
         {r.added.length > 0 && (
           <div className="small muted">
-            另有 {r.added.length} 个清单未记录的文件（多出文件本身不是错误，仅作告知）
+            {t("audit.nAdded", { n: r.added.length })}
           </div>
         )}
       </div>
@@ -264,21 +264,15 @@ export function ReportViewer({
     <div className="viewer" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <header>
-          <span className="t">拷卡报告</span>
+          <span className="t">{t("report.title")}</span>
           <span className="path">{manifestPath.replace(/\.json$/, ".html")}</span>
           <div className="r">
-            <button className="btn sm" onClick={() => ref.current?.contentWindow?.print()}>
-              打印 / 存为 PDF
-            </button>
+            <button className="btn sm" onClick={() => ref.current?.contentWindow?.print()}>{t("report.print")}</button>
             <button
               className="btn sm"
               onClick={() => api.openReportFile(manifestPath).catch((e) => setError(String(e)))}
-            >
-              在浏览器中打开
-            </button>
-            <button className="btn sm" onClick={onClose}>
-              关闭
-            </button>
+            >{t("report.openInBrowser")}</button>
+            <button className="btn sm" onClick={onClose}>{t("app.close")}</button>
           </div>
         </header>
         {error ? (
@@ -286,9 +280,9 @@ export function ReportViewer({
             {error}
           </div>
         ) : html === null ? (
-          <div className="empty">正在载入报告…</div>
+          <div className="empty">{t("report.loading")}</div>
         ) : (
-          <iframe ref={ref} title="拷卡报告" sandbox="allow-same-origin allow-modals" srcDoc={html} />
+          <iframe ref={ref} title={t("report.title")} sandbox="allow-same-origin allow-modals" srcDoc={html} />
         )}
       </div>
     </div>
@@ -301,7 +295,7 @@ export function SafetyChecks({ s }: { s: FormatSafety }) {
     <div className="col" style={{ gap: 4 }}>
       {s.report.checks.map((c) => (
         <div key={c.id} className="small">
-          <span className={c.passed ? "tag t-ok" : "tag t-bad"}>{c.passed ? "通过" : "拦下"}</span>{" "}
+          <span className={c.passed ? "tag t-ok" : "tag t-bad"}>{c.passed ? t("app.pass") : t("app.blocked")}</span>{" "}
           <span className="mono">{c.id}</span> <span className="muted">{c.detail}</span>
         </div>
       ))}
@@ -332,7 +326,10 @@ export class ErrorBoundary extends Component<
   render() {
     const e = this.state.error;
     if (!e) return this.props.children;
-    const detail = `${this.props.where}：${e.message}\n${e.stack ?? ""}`;
+    const detail = [
+      t("app.diagnostics", { where: this.props.where, message: e.message }),
+      e.stack ?? "",
+    ].join("\n");
     return (
       <div className="body col">
         <div className="banner bad">

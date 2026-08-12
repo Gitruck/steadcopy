@@ -1,6 +1,6 @@
 # 门面契约
 
-规范：`openspec/changes/add-steadcopy-core/specs/cli-driver/spec.md`、`openspec/changes/add-steadcopy-app/specs/app-shell/spec.md`
+规范：能力 `cli-driver` 的 spec（openspec 私仓）、能力 `app-shell` 的 spec（openspec 私仓）
 
 **铁律：前端零业务逻辑。** 这份文档是那条铁律的具体形态——路径渲染、增量判定、空间计算、哈希、安全检查、倒计时下限、卷标比对，**全部在 core 里算**。界面只负责发命令、订阅事件、把结论摆出来。
 
@@ -161,9 +161,9 @@ nothing                     不用做什么（已忽略 / 已有任务在跑）
 
 新增或修改命令/事件时：
 
-1. 先改 spec（`openspec/changes/*/specs/`），再改代码
+1. 先改 spec（openspec 私仓），再改代码
 2. 同步改 `app/src/bridge.ts` 的类型——**它是前端唯一的出入口**
 3. 回来更新本文件
 4. 跨层契约的改动在两侧 proposal 的「Impact」里互链
 
-漏掉第 2 步时 `tsc --noEmit` 会红；漏掉第 1 步没有机器能拦，只能靠人审——这也是 `openspec/README.md` 里禁 propose→apply 一把梭的原因之一。
+漏掉第 2 步时 `tsc --noEmit` 会红；漏掉第 1 步没有机器能拦，只能靠人审——这也是三制度里禁 propose→apply 一把梭的原因之一。

@@ -315,3 +315,59 @@ fn scenario_app_shell_only_bridge_talks_to_backend() {
         "这些文件绕过 bridge.ts 直接与后端通信：{offenders:?}"
     );
 }
+
+// spec: i18n → Scenario: 英文输出无 CJK（界面侧）
+#[test]
+fn scenario_i18n_ui_has_no_hardcoded_chinese() {
+    // 界面文案一律走词典。硬编码一句中文，英文用户就看到一句中文，
+    // 而 `tsc` 查不出来——它是合法的字符串。所以在这里机检。
+    //
+    // 放行两类：`//` 与 `{/* */}` 注释（给维护者看的，不是界面文案），
+    // 以及路径模板占位符（`{项目}` 那些是**后端按字面解析的数据**，翻了就坏）。
+    const PLACEHOLDERS: &[&str] = &[
+        "{项目}", "{日期}", "{设备}", "{卡}", "{时段}", "{年}", "{月}", "{日}",
+    ];
+
+    let mut hits = Vec::new();
+    for name in ["App.tsx", "components.tsx", "adhoc.tsx"] {
+        let text = read(&format!("app/src/{name}"));
+        let mut in_block_comment = false;
+        for (n, line) in text.lines().enumerate() {
+            let l = line.trim();
+            if l.starts_with("//") || l.starts_with('*') || l.starts_with("/*") {
+                in_block_comment = l.starts_with("/*") && !l.contains("*/");
+                continue;
+            }
+            if in_block_comment {
+                if l.contains("*/") {
+                    in_block_comment = false;
+                }
+                continue;
+            }
+            // 行内 JSX 注释 {/* … */} 与行尾 // 注释先剥掉
+            let mut stripped = line.to_string();
+            while let (Some(a), Some(b)) = (stripped.find("{/*"), stripped.find("*/}")) {
+                if a < b {
+                    stripped.replace_range(a..b + 3, "");
+                } else {
+                    break;
+                }
+            }
+            if l.starts_with("{/*") {
+                in_block_comment = !l.contains("*/}");
+                continue;
+            }
+            for p in PLACEHOLDERS {
+                stripped = stripped.replace(p, "");
+            }
+            if steadcopy_core::i18n::has_cjk(&stripped) {
+                hits.push(format!("app/src/{name}:{}: {}", n + 1, l));
+            }
+        }
+    }
+
+    assert!(
+        hits.is_empty(),
+        "界面里出现了硬编码中文，英文用户会直接看到它们——请收进 app/src/i18n/zh.ts：\n{hits:#?}"
+    );
+}
